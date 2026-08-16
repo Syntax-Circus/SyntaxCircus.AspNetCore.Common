@@ -43,7 +43,7 @@ public sealed class ProblemDetailsExceptionMiddleware(
                 Instance = context.Request.Path,
             };
 
-            await context.Response.WriteAsJsonAsync(problemDetails).ConfigureAwait(false);
+            await context.Response.WriteAsJsonAsync(problemDetails, options: null, contentType: "application/problem+json").ConfigureAwait(false);
         }
     }
 }

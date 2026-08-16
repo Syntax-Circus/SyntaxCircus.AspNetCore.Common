@@ -82,7 +82,7 @@ public static class RateLimiterOptionsExtensions
                 Detail = "Too many requests.",
             };
 
-            await response.WriteAsJsonAsync(problemDetails, cancellationToken).ConfigureAwait(false);
+            await response.WriteAsJsonAsync(problemDetails, options: null, contentType: "application/problem+json", cancellationToken: cancellationToken).ConfigureAwait(false);
         };
 
         return options;
