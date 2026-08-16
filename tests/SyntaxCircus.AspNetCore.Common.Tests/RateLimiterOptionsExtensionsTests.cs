@@ -20,6 +20,30 @@ public class RateLimiterOptionsExtensionsTests
     }
 
     [Fact]
+    public void AddPartitionedFixedWindow_NullOptions_ThrowsArgumentNullException()
+    {
+        Should.Throw<ArgumentNullException>(() =>
+            RateLimiterOptionsExtensions.AddPartitionedFixedWindow(
+                null!,
+                "policy",
+                _ => "key",
+                1,
+                TimeSpan.FromMinutes(1)));
+    }
+
+    [Fact]
+    public void AddPartitionedFixedWindow_NullPartitionKeySelector_ThrowsArgumentNullException()
+    {
+        var options = new RateLimiterOptions();
+        Should.Throw<ArgumentNullException>(() =>
+            options.AddPartitionedFixedWindow(
+                "policy",
+                null!,
+                1,
+                TimeSpan.FromMinutes(1)));
+    }
+
+    [Fact]
     public void UseProblemDetailsRejection_NullOptions_ThrowsArgumentNullException()
     {
         Should.Throw<ArgumentNullException>(() => RateLimiterOptionsExtensions.UseProblemDetailsRejection(null!));
@@ -101,6 +125,85 @@ public class RateLimiterOptionsExtensionsTests
         userAFirst.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
         userASecond.StatusCode.ShouldBe((System.Net.HttpStatusCode)429);
         userBFirst.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task PartitionedFixedWindow_CustomSelector_CanPartitionBySubjectAndRoute()
+    {
+        using var server = TestServerFactory.Create(
+            services =>
+            {
+                services.AddRateLimiter(options =>
+                {
+                    options.AddPartitionedFixedWindow(
+                        "composite-policy",
+                        ctx => $"{ctx.User.FindFirst("sub")?.Value ?? "anon"}:{ctx.Request.Path}",
+                        permitLimit: 1,
+                        window: TimeSpan.FromMinutes(1));
+                    options.UseProblemDetailsRejection();
+                });
+            },
+            app =>
+            {
+                app.Use(async (ctx, next) =>
+                {
+                    var userId = ctx.Request.Headers["X-Test-User"].FirstOrDefault();
+                    if (!string.IsNullOrEmpty(userId))
+                    {
+                        var identity = new System.Security.Claims.ClaimsIdentity([new System.Security.Claims.Claim("sub", userId)], "Test");
+                        ctx.User = new System.Security.Claims.ClaimsPrincipal(identity);
+                    }
+
+                    await next();
+                });
+                app.UseRouting();
+                app.UseRateLimiter();
+                app.MapGet("/limited/one", () => "ok").RequireRateLimiting("composite-policy");
+                app.MapGet("/limited/two", () => "ok").RequireRateLimiting("composite-policy");
+            });
+        using var client = server.CreateClient();
+
+        client.DefaultRequestHeaders.Add("X-Test-User", "user-a");
+        var userAFirstOnRouteOne = await client.GetAsync(new Uri("/limited/one", UriKind.Relative), TestContext.Current.CancellationToken);
+        var userASecondOnRouteOne = await client.GetAsync(new Uri("/limited/one", UriKind.Relative), TestContext.Current.CancellationToken);
+        var userAFirstOnRouteTwo = await client.GetAsync(new Uri("/limited/two", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        client.DefaultRequestHeaders.Remove("X-Test-User");
+        client.DefaultRequestHeaders.Add("X-Test-User", "user-b");
+        var userBFirstOnRouteOne = await client.GetAsync(new Uri("/limited/one", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        userAFirstOnRouteOne.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        userASecondOnRouteOne.StatusCode.ShouldBe((System.Net.HttpStatusCode)429);
+        userAFirstOnRouteTwo.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        userBFirstOnRouteOne.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task PerIpFixedWindow_WithConfigureOverride_UsesConfiguredPermitLimit()
+    {
+        using var server = TestServerFactory.Create(
+            services =>
+            {
+                services.AddRateLimiter(options =>
+                {
+                    options.AddPerIpFixedWindow(
+                        "configured-ip-policy",
+                        permitLimit: 0,
+                        window: TimeSpan.FromMinutes(1),
+                        configure: fixedWindowOptions => fixedWindowOptions.PermitLimit = 1);
+                    options.UseProblemDetailsRejection();
+                });
+            },
+            app =>
+            {
+                app.UseRouting();
+                app.UseRateLimiter();
+                app.MapGet("/limited", () => "ok").RequireRateLimiting("configured-ip-policy");
+            });
+        using var client = server.CreateClient();
+
+        var response = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+        response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
     }
 
     private sealed class FakeRateLimitLease(bool hasRetryAfter, TimeSpan retryAfter) : RateLimitLease

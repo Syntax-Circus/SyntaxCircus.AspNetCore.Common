@@ -96,7 +96,38 @@ var app = builder.Build();
 app.UseRateLimiter();
 ```
 
-Policy-factory helpers for the two most common partitioning strategies (per-IP, per-authenticated-subject with IP fallback when anonymous), plus a rejection handler that writes a ProblemDetails 429 (with `Retry-After` when the limiter knows it), reusing the same `ProblemDetailsMappingOptions.BuildTypeUri` as the exception middleware above if it's registered.
+### API surface
+
+| Method | Purpose |
+| --- | --- |
+| `AddPerIpFixedWindow(policyName, permitLimit, window)` | Fixed-window policy partitioned by remote IP (`"unknown"` fallback). |
+| `AddPerIpFixedWindow(policyName, permitLimit, window, configure)` | Same as above, with per-policy `FixedWindowRateLimiterOptions` overrides. |
+| `AddPerSubjectFixedWindow(policyName, permitLimit, window)` | Fixed-window policy partitioned by authenticated subject (`sub`, fallback `NameIdentifier`, then remote IP). |
+| `AddPerSubjectFixedWindow(policyName, permitLimit, window, configure)` | Same as above, with per-policy `FixedWindowRateLimiterOptions` overrides. |
+| `AddPartitionedFixedWindow(policyName, partitionKeySelector, permitLimit, window, configure = null)` | Additive advanced API for custom partition key composition (route, claim combinations, tenant headers, etc.). |
+| `UseProblemDetailsRejection(errorCode = "rate-limited")` | Writes ProblemDetails 429 responses and includes `Retry-After` when available. |
+
+### Advanced partition-key composition (additive, non-breaking)
+
+```csharp
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddPartitionedFixedWindow(
+        "tenant-route",
+        ctx => $"{ctx.User.FindFirst("tenant_id")?.Value ?? "anon"}:{ctx.Request.Path}",
+        permitLimit: 120,
+        window: TimeSpan.FromMinutes(1),
+        configure: fixedWindow =>
+        {
+            fixedWindow.QueueLimit = 5;
+            fixedWindow.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        });
+
+    options.UseProblemDetailsRejection();
+});
+```
+
+This keeps the existing convenience helpers intact while adding custom partition selection and optional per-policy overrides when app-level policy composition needs to be richer.
 
 ## Contributing
 
