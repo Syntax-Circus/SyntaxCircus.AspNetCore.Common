@@ -14,17 +14,42 @@ public static class RateLimiterOptionsExtensions
         string policyName,
         int permitLimit,
         TimeSpan window)
+        => AddPerIpFixedWindow(options, policyName, permitLimit, window, configure: null);
+
+    /// <summary>
+    /// Adds a fixed-window policy partitioned by remote IP address, with optional per-policy option overrides.
+    /// </summary>
+    public static RateLimiterOptions AddPerIpFixedWindow(
+        this RateLimiterOptions options,
+        string policyName,
+        int permitLimit,
+        TimeSpan window,
+        Action<FixedWindowRateLimiterOptions>? configure)
+        => AddPartitionedFixedWindow(
+            options,
+            policyName,
+            context => context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            permitLimit,
+            window,
+            configure);
+
+    /// <summary>
+    /// Adds a fixed-window policy partitioned by a custom key selector, with optional per-policy option overrides.
+    /// </summary>
+    public static RateLimiterOptions AddPartitionedFixedWindow(
+        this RateLimiterOptions options,
+        string policyName,
+        Func<HttpContext, string?> partitionKeySelector,
+        int permitLimit,
+        TimeSpan window,
+        Action<FixedWindowRateLimiterOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(partitionKeySelector);
 
         options.AddPolicy(policyName, context => RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            factory: _ => new FixedWindowRateLimiterOptions
-            {
-                PermitLimit = permitLimit,
-                Window = window,
-                QueueLimit = 0,
-            }));
+            partitionKey: NormalizePartitionKey(partitionKeySelector(context)),
+            factory: _ => BuildFixedWindowOptions(permitLimit, window, configure)));
 
         return options;
     }
@@ -38,25 +63,39 @@ public static class RateLimiterOptionsExtensions
         string policyName,
         int permitLimit,
         TimeSpan window)
+        => AddPerSubjectFixedWindow(options, policyName, permitLimit, window, configure: null);
+
+    /// <summary>
+    /// Adds a fixed-window policy partitioned by the authenticated subject (<c>sub</c> claim,
+    /// falling back to <see cref="ClaimTypes.NameIdentifier"/>), or remote IP when anonymous,
+    /// with optional per-policy option overrides.
+    /// </summary>
+    public static RateLimiterOptions AddPerSubjectFixedWindow(
+        this RateLimiterOptions options,
+        string policyName,
+        int permitLimit,
+        TimeSpan window,
+        Action<FixedWindowRateLimiterOptions>? configure)
+        => AddPartitionedFixedWindow(options, policyName, ResolvePartitionKey, permitLimit, window, configure);
+
+    private static FixedWindowRateLimiterOptions BuildFixedWindowOptions(
+        int permitLimit,
+        TimeSpan window,
+        Action<FixedWindowRateLimiterOptions>? configure)
     {
-        ArgumentNullException.ThrowIfNull(options);
-
-        options.AddPolicy(policyName, context =>
+        var limiterOptions = new FixedWindowRateLimiterOptions
         {
-            var partitionKey = ResolvePartitionKey(context);
+            PermitLimit = permitLimit,
+            Window = window,
+            QueueLimit = 0,
+        };
 
-            return RateLimitPartition.GetFixedWindowLimiter(
-                partitionKey,
-                factory: _ => new FixedWindowRateLimiterOptions
-                {
-                    PermitLimit = permitLimit,
-                    Window = window,
-                    QueueLimit = 0,
-                });
-        });
-
-        return options;
+        configure?.Invoke(limiterOptions);
+        return limiterOptions;
     }
+
+    private static string NormalizePartitionKey(string? partitionKey)
+        => string.IsNullOrWhiteSpace(partitionKey) ? "unknown" : partitionKey;
 
     /// <summary>Writes a ProblemDetails 429 response (with <c>Retry-After</c> when the limiter knows it) as the rejection handler.</summary>
     public static RateLimiterOptions UseProblemDetailsRejection(this RateLimiterOptions options, string errorCode = "rate-limited")

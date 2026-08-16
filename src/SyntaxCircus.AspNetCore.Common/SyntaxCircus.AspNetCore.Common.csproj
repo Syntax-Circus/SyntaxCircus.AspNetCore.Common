@@ -6,9 +6,9 @@
     <PackageId>SyntaxCircus.AspNetCore.Common</PackageId>
     <Title>SyntaxCircus ASP.NET Core Common</Title>
     <Description>Small, near-universal ASP.NET Core host boilerplate: correlation-ID middleware, security headers, and a composable exception-handler/HSTS bootstrap.</Description>
-    <Authors>SyntaxCircus</Authors>
-    <Company>SyntaxCircus</Company>
-    <Copyright>Copyright © SyntaxCircus</Copyright>
+    <Authors>Syntax Circus LLC</Authors>
+    <Company>Syntax Circus LLC</Company>
+    <Copyright>Copyright © Syntax Circus LLC</Copyright>
     <PackageTags>aspnetcore;middleware;correlation-id;security-headers</PackageTags>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
