@@ -1,0 +1,9 @@
+global using System.Diagnostics;
+global using MassTransit;
+global using Microsoft.Extensions.Logging;
+global using Microsoft.Extensions.Options;
+global using NSubstitute;
+global using Shouldly;
+global using SyntaxCircus.AspNetCore.Common;
+global using SyntaxCircus.AspNetCore.Common.MassTransit;
+global using Xunit;

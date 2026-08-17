@@ -61,15 +61,9 @@ jobs:
         run: dotnet nuget push artifacts/*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
       - name: Tag published version
         run: |
-          package_path=$(find artifacts -maxdepth 1 -type f -name '*.nupkg' ! -name '*.snupkg' | head -n 1)
-          if [ -z "$package_path" ]; then
-            echo "No .nupkg found to derive the release tag."
-            exit 1
-          fi
-
-          package_name=$(basename "$package_path")
-          version=${package_name#SyntaxCircus.AspNetCore.Common.}
-          version=${version%.nupkg}
+          # Derive version from GitVersion directly — robust to multiple packages in artifacts/.
+          dotnet tool install --global GitVersion.Tool --version 6.*
+          version=$(dotnet-gitversion /showvariable SemVer)
           tag="v$version"
 
           if git ls-remote --tags origin "refs/tags/$tag" | grep -q .; then

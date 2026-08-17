@@ -13,5 +13,7 @@
     <File Path="README.md" />
   </Folder>
   <Project Path="src/SyntaxCircus.AspNetCore.Common/SyntaxCircus.AspNetCore.Common.csproj" />
+  <Project Path="src/SyntaxCircus.AspNetCore.Common.MassTransit/SyntaxCircus.AspNetCore.Common.MassTransit.csproj" />
   <Project Path="tests/SyntaxCircus.AspNetCore.Common.Tests/SyntaxCircus.AspNetCore.Common.Tests.csproj" />
+  <Project Path="tests/SyntaxCircus.AspNetCore.Common.MassTransit.Tests/SyntaxCircus.AspNetCore.Common.MassTransit.Tests.csproj" />
 </Solution>
