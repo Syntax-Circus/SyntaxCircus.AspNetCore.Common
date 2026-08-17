@@ -39,7 +39,7 @@ public sealed class ProblemDetailsExceptionMiddleware(
             {
                 Status = mapped.StatusCode,
                 Type = options.Value.BuildTypeUri(mapped.ErrorCode),
-                Detail = mapped.Detail ?? ex.Message,
+                Detail = mapped.Detail ?? (options.Value.IncludeExceptionMessageInDetail ? ex.Message : null),
                 Instance = context.Request.Path,
             };
 

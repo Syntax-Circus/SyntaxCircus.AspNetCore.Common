@@ -27,12 +27,12 @@ public class ProblemDetailsMappingOptionsTests
     }
 
     [Theory]
-    [InlineData(typeof(ArgumentException), 400, "bad-request")]
-    [InlineData(typeof(UnauthorizedAccessException), 403, "forbidden")]
-    [InlineData(typeof(KeyNotFoundException), 404, "not-found")]
-    [InlineData(typeof(InvalidOperationException), 409, "conflict")]
-    [InlineData(typeof(NotImplementedException), 500, "internal-error")]
-    public void DefaultMapper_MapsExceptionTypeToExpectedStatusAndCode(Type exceptionType, int expectedStatus, string expectedCode)
+    [InlineData(typeof(ArgumentException), 400, "bad-request", "The request was invalid.")]
+    [InlineData(typeof(UnauthorizedAccessException), 403, "forbidden", "You do not have permission to perform this action.")]
+    [InlineData(typeof(KeyNotFoundException), 404, "not-found", "The requested resource was not found.")]
+    [InlineData(typeof(InvalidOperationException), 409, "conflict", "The request could not be completed due to a conflict.")]
+    [InlineData(typeof(NotImplementedException), 500, "internal-error", "An unexpected error occurred.")]
+    public void DefaultMapper_MapsExceptionTypeToExpectedStatusCodeAndDetail(Type exceptionType, int expectedStatus, string expectedCode, string expectedDetail)
     {
         var options = new ProblemDetailsMappingOptions();
         var exception = (Exception)Activator.CreateInstance(exceptionType)!;
@@ -41,5 +41,14 @@ public class ProblemDetailsMappingOptionsTests
 
         mapping.StatusCode.ShouldBe(expectedStatus);
         mapping.ErrorCode.ShouldBe(expectedCode);
+        mapping.Detail.ShouldBe(expectedDetail);
+    }
+
+    [Fact]
+    public void IncludeExceptionMessageInDetail_DefaultsToFalse()
+    {
+        var options = new ProblemDetailsMappingOptions();
+
+        options.IncludeExceptionMessageInDetail.ShouldBeFalse();
     }
 }
