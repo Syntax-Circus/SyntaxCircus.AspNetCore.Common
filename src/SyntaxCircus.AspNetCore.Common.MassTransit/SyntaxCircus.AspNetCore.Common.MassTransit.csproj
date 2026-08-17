@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>SyntaxCircus.AspNetCore.Common.MassTransit</PackageId>
+    <Title>SyntaxCircus ASP.NET Core Common — MassTransit</Title>
+    <Description>Optional companion to SyntaxCircus.AspNetCore.Common: MassTransit consume/publish/send filters that propagate the configured correlation ID across message-bus boundaries, keeping log enrichment consistent with the HTTP middleware.</Description>
+    <Authors>Syntax Circus LLC</Authors>
+    <Company>Syntax Circus LLC</Company>
+    <Copyright>Copyright © Syntax Circus LLC</Copyright>
+    <PackageTags>aspnetcore;masstransit;middleware;correlation-id;messaging</PackageTags>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/Syntax-Circus/SyntaxCircus.AspNetCore.Common</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Syntax-Circus/SyntaxCircus.AspNetCore.Common</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="GitVersion.MsBuild" PrivateAssets="all" />
+    <PackageReference Include="MassTransit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SyntaxCircus.AspNetCore.Common\SyntaxCircus.AspNetCore.Common.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>
