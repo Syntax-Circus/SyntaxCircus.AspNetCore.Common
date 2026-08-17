@@ -56,7 +56,18 @@ var app = builder.Build();
 app.UseProblemDetailsExceptionHandling();
 ```
 
-Catches unhandled exceptions and writes an RFC 7807 `ProblemDetails` response, with `Type` built from `BaseTypeUri` + your error code. Which exception types mean what status/code is deliberately a delegate you supply — that mapping is product-specific and the package doesn't try to guess it for you. A reasonable default mapper is provided if you don't set one.
+Catches unhandled exceptions and writes an RFC 7807 `ProblemDetails` response, with `Type` built from `BaseTypeUri` + your error code. Which exception types mean what status/code is deliberately a delegate you supply — that mapping is product-specific and the package doesn't try to guess it for you. A reasonable default mapper is provided if you don't set one, and it never puts a raw `ex.Message` into the response body: every case — including the unmapped/500 fallback — gets an explicit, generic `Detail` string. This matters because `ex.Message` on an exception nobody anticipated (a database error, a file path, connection details) can carry internals that shouldn't reach an API client.
+
+The same rule applies to custom mappers: if your `ExceptionMapper` leaves a `ProblemMapping`'s `Detail` unset (`null`), the middleware leaves `Detail` `null` in the response too — it does not silently substitute `ex.Message`. If you want the old fall-back-to-`ex.Message` behavior for cases your mapper doesn't set `Detail` for, opt in explicitly:
+
+```csharp
+builder.Services.AddProblemDetailsExceptionHandling(options =>
+{
+    options.IncludeExceptionMessageInDetail = true; // restores ex.Message fallback when a mapping's Detail is null
+});
+```
+
+`IncludeExceptionMessageInDetail` defaults to `false`. Only set it to `true` if you've verified your exception messages are safe to expose to API clients (e.g. gated to non-production environments).
 
 ## Trusted-proxy validation
 

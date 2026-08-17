@@ -62,7 +62,7 @@ public class ProblemDetailsExceptionMiddlewareTests
     }
 
     [Fact]
-    public async Task InvokeAsync_DetailFallsBackToExceptionMessage_WhenMapperDetailNull()
+    public async Task InvokeAsync_DefaultMapper_DoesNotIncludeExceptionMessage_ByDefault()
     {
         var context = CreateContext();
         var middleware = CreateMiddleware(_ => throw new ArgumentException("specific detail message"));
@@ -72,7 +72,23 @@ public class ProblemDetailsExceptionMiddlewareTests
         context.Response.Body.Position = 0;
         using var reader = new StreamReader(context.Response.Body);
         var body = await reader.ReadToEndAsync(TestContext.Current.CancellationToken);
-        body.ShouldContain("specific detail message");
+        body.ShouldNotContain("specific detail message");
+        body.ShouldContain("The request was invalid.");
+    }
+
+    [Fact]
+    public async Task InvokeAsync_UnmappedException_DoesNotLeakExceptionMessage_ByDefault()
+    {
+        var context = CreateContext();
+        var middleware = CreateMiddleware(_ => throw new NotImplementedException("password=hunter2"));
+
+        await middleware.InvokeAsync(context);
+
+        context.Response.Body.Position = 0;
+        using var reader = new StreamReader(context.Response.Body);
+        var body = await reader.ReadToEndAsync(TestContext.Current.CancellationToken);
+        body.ShouldNotContain("password=hunter2");
+        body.ShouldContain("An unexpected error occurred.");
     }
 
     [Fact]
@@ -107,5 +123,60 @@ public class ProblemDetailsExceptionMiddlewareTests
         await middleware.InvokeAsync(context);
 
         context.Response.StatusCode.ShouldBe(418);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_CustomExceptionMapper_DetailHonored()
+    {
+        var context = CreateContext();
+        var options = new ProblemDetailsMappingOptions
+        {
+            ExceptionMapper = _ => new ProblemMapping(418, "im-a-teapot", "custom detail"),
+        };
+        var middleware = CreateMiddleware(_ => throw new InvalidOperationException("ignored"), options);
+
+        await middleware.InvokeAsync(context);
+
+        context.Response.Body.Position = 0;
+        using var reader = new StreamReader(context.Response.Body);
+        var body = await reader.ReadToEndAsync(TestContext.Current.CancellationToken);
+        body.ShouldContain("custom detail");
+    }
+
+    [Fact]
+    public async Task InvokeAsync_IncludeExceptionMessageInDetailFalse_DetailNull_WhenMapperDetailNull()
+    {
+        var context = CreateContext();
+        var options = new ProblemDetailsMappingOptions
+        {
+            ExceptionMapper = _ => new ProblemMapping(400, "bad-request"),
+        };
+        var middleware = CreateMiddleware(_ => throw new ArgumentException("specific detail message"), options);
+
+        await middleware.InvokeAsync(context);
+
+        context.Response.Body.Position = 0;
+        using var reader = new StreamReader(context.Response.Body);
+        var body = await reader.ReadToEndAsync(TestContext.Current.CancellationToken);
+        body.ShouldNotContain("specific detail message");
+    }
+
+    [Fact]
+    public async Task InvokeAsync_IncludeExceptionMessageInDetailTrue_FallsBackToExceptionMessage_WhenMapperDetailNull()
+    {
+        var context = CreateContext();
+        var options = new ProblemDetailsMappingOptions
+        {
+            ExceptionMapper = _ => new ProblemMapping(400, "bad-request"),
+            IncludeExceptionMessageInDetail = true,
+        };
+        var middleware = CreateMiddleware(_ => throw new ArgumentException("specific detail message"), options);
+
+        await middleware.InvokeAsync(context);
+
+        context.Response.Body.Position = 0;
+        using var reader = new StreamReader(context.Response.Body);
+        var body = await reader.ReadToEndAsync(TestContext.Current.CancellationToken);
+        body.ShouldContain("specific detail message");
     }
 }
