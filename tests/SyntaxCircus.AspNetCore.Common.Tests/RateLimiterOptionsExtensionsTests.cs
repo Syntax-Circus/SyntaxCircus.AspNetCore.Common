@@ -282,4 +282,124 @@ public class RateLimiterOptionsExtensionsTests
         var body = await reader.ReadToEndAsync(TestContext.Current.CancellationToken);
         body.ShouldContain("\"type\":\"rate-limited\"");
     }
+
+    [Fact]
+    public void CreateFixedWindowTier_NullPartitionKeySelector_ThrowsArgumentNullException()
+    {
+        Should.Throw<ArgumentNullException>(() =>
+            RateLimiterOptionsExtensions.CreateFixedWindowTier(null!, 1, TimeSpan.FromMinutes(1)));
+    }
+
+    [Fact]
+    public void UseChainedGlobalLimiter_NullOptions_ThrowsArgumentNullException()
+    {
+        Should.Throw<ArgumentNullException>(() =>
+            RateLimiterOptionsExtensions.UseChainedGlobalLimiter(null!, []));
+    }
+
+    [Fact]
+    public void UseChainedGlobalLimiter_NullTiers_ThrowsArgumentNullException()
+    {
+        var options = new RateLimiterOptions();
+        Should.Throw<ArgumentNullException>(() =>
+            options.UseChainedGlobalLimiter(null!));
+    }
+
+    [Fact]
+    public async Task UseChainedGlobalLimiter_FirstTierExhausted_RejectsEvenWithSecondTierQuotaRemaining()
+    {
+        using var server = TestServerFactory.Create(
+            services =>
+            {
+                services.AddProblemDetailsExceptionHandling();
+                services.AddRateLimiter(options =>
+                {
+                    options.UseChainedGlobalLimiter(
+                        RateLimiterOptionsExtensions.CreateFixedWindowTier(_ => "shared-actor", permitLimit: 1, window: TimeSpan.FromMinutes(1)),
+                        RateLimiterOptionsExtensions.CreateFixedWindowTier(ctx => ctx.Connection.RemoteIpAddress?.ToString(), permitLimit: 100, window: TimeSpan.FromMinutes(1)));
+                    options.UseProblemDetailsRejection();
+                });
+            },
+            app =>
+            {
+                app.UseRouting();
+                app.UseRateLimiter();
+                app.MapGet("/limited", () => "ok");
+            });
+        using var client = server.CreateClient();
+
+        var first = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+        var second = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        first.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        second.StatusCode.ShouldBe((System.Net.HttpStatusCode)429);
+    }
+
+    [Fact]
+    public async Task UseChainedGlobalLimiter_SecondTierExhausted_RejectsEvenWithFirstTierQuotaRemaining()
+    {
+        using var server = TestServerFactory.Create(
+            services =>
+            {
+                services.AddProblemDetailsExceptionHandling();
+                services.AddRateLimiter(options =>
+                {
+                    options.UseChainedGlobalLimiter(
+                        RateLimiterOptionsExtensions.CreateFixedWindowTier(_ => "shared-actor", permitLimit: 100, window: TimeSpan.FromMinutes(1)),
+                        RateLimiterOptionsExtensions.CreateFixedWindowTier(ctx => ctx.Connection.RemoteIpAddress?.ToString(), permitLimit: 1, window: TimeSpan.FromMinutes(1)));
+                    options.UseProblemDetailsRejection();
+                });
+            },
+            app =>
+            {
+                app.UseRouting();
+                app.UseRateLimiter();
+                app.MapGet("/limited", () => "ok");
+            });
+        using var client = server.CreateClient();
+
+        var first = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+        var second = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        first.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        second.StatusCode.ShouldBe((System.Net.HttpStatusCode)429);
+    }
+
+    [Fact]
+    public async Task UseChainedGlobalLimiter_ExemptRequest_BypassesThatTierEntirely()
+    {
+        using var server = TestServerFactory.Create(
+            services =>
+            {
+                services.AddProblemDetailsExceptionHandling();
+                services.AddRateLimiter(options =>
+                {
+                    options.UseChainedGlobalLimiter(
+                        RateLimiterOptionsExtensions.CreateFixedWindowTier(
+                            _ => "shared-actor",
+                            permitLimit: 1,
+                            window: TimeSpan.FromMinutes(1),
+                            isExempt: ctx => ctx.Request.Path.StartsWithSegments("/exempt")));
+                    options.UseProblemDetailsRejection();
+                });
+            },
+            app =>
+            {
+                app.UseRouting();
+                app.UseRateLimiter();
+                app.MapGet("/limited", () => "ok");
+                app.MapGet("/exempt", () => "ok");
+            });
+        using var client = server.CreateClient();
+
+        var limitedFirst = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+        var limitedSecond = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+        var exemptFirst = await client.GetAsync(new Uri("/exempt", UriKind.Relative), TestContext.Current.CancellationToken);
+        var exemptSecond = await client.GetAsync(new Uri("/exempt", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        limitedFirst.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        limitedSecond.StatusCode.ShouldBe((System.Net.HttpStatusCode)429);
+        exemptFirst.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        exemptSecond.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+    }
 }

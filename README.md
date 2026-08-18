@@ -162,6 +162,39 @@ builder.Services.AddRateLimiter(options =>
 
 This keeps the existing convenience helpers intact while adding custom partition selection and optional per-policy overrides when app-level policy composition needs to be richer.
 
+### Chained multi-tier global limiter (additive, non-breaking)
+
+For defense-in-depth rate limiting — e.g. requiring a request to pass both a per-actor
+*and* a per-IP quota, so a leaked token can't bypass IP-level throttling and vice versa —
+compose independently-partitioned tiers into `RateLimiterOptions.GlobalLimiter`:
+
+```csharp
+builder.Services.AddRateLimiter(options =>
+{
+    options.UseChainedGlobalLimiter(
+        RateLimiterOptionsExtensions.CreateFixedWindowTier(
+            ctx => ctx.User.FindFirst("sub")?.Value,
+            permitLimit: 600,
+            window: TimeSpan.FromMinutes(1),
+            isExempt: ctx => ctx.Request.Path.StartsWithSegments("/health")),
+        RateLimiterOptionsExtensions.CreateFixedWindowTier(
+            ctx => ctx.Connection.RemoteIpAddress?.ToString(),
+            permitLimit: 60,
+            window: TimeSpan.FromMinutes(1),
+            isExempt: ctx => ctx.Request.Path.StartsWithSegments("/health")));
+
+    options.UseProblemDetailsRejection();
+});
+```
+
+A request must pass every tier's limiter to proceed; `isExempt` bypasses an individual
+tier (e.g. for health-check paths) without disabling the others.
+
+| Method | Purpose |
+| --- | --- |
+| `CreateFixedWindowTier(partitionKeySelector, permitLimit, window, isExempt = null, configure = null)` | Builds one fixed-window `PartitionedRateLimiter<HttpContext>` tier for chaining. |
+| `UseChainedGlobalLimiter(params tiers)` | Sets `GlobalLimiter` to the chained combination of the given tiers. |
+
 ## Contributing
 
 Issues and pull requests are welcome:

@@ -97,6 +97,52 @@ public static class RateLimiterOptionsExtensions
     private static string NormalizePartitionKey(string? partitionKey)
         => string.IsNullOrWhiteSpace(partitionKey) ? "unknown" : partitionKey;
 
+    /// <summary>
+    /// Builds a single fixed-window <see cref="PartitionedRateLimiter{HttpContext}"/> tier for
+    /// composing into <see cref="RateLimiterOptions.GlobalLimiter"/> via
+    /// <see cref="UseChainedGlobalLimiter"/>. Requests matched by <paramref name="isExempt"/>
+    /// bypass this tier entirely (no-op limiter for that request).
+    /// </summary>
+    public static PartitionedRateLimiter<HttpContext> CreateFixedWindowTier(
+        Func<HttpContext, string?> partitionKeySelector,
+        int permitLimit,
+        TimeSpan window,
+        Func<HttpContext, bool>? isExempt = null,
+        Action<FixedWindowRateLimiterOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(partitionKeySelector);
+
+        return PartitionedRateLimiter.Create<HttpContext, string>(context =>
+        {
+            if (isExempt?.Invoke(context) == true)
+            {
+                return RateLimitPartition.GetNoLimiter("exempt");
+            }
+
+            return RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: NormalizePartitionKey(partitionKeySelector(context)),
+                factory: _ => BuildFixedWindowOptions(permitLimit, window, configure));
+        });
+    }
+
+    /// <summary>
+    /// Sets <see cref="RateLimiterOptions.GlobalLimiter"/> to a chained combination of the given
+    /// tiers (e.g. built via <see cref="CreateFixedWindowTier"/>) — a request must pass every
+    /// tier's limiter to proceed. Useful for defense-in-depth rate limiting with independent
+    /// partition keys (e.g. per-authenticated-subject AND per-IP), without hand-rolling
+    /// <see cref="PartitionedRateLimiter.CreateChained{TResource}"/> at the call site.
+    /// </summary>
+    public static RateLimiterOptions UseChainedGlobalLimiter(
+        this RateLimiterOptions options,
+        params PartitionedRateLimiter<HttpContext>[] tiers)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(tiers);
+
+        options.GlobalLimiter = PartitionedRateLimiter.CreateChained(tiers);
+        return options;
+    }
+
     /// <summary>Writes a ProblemDetails 429 response (with <c>Retry-After</c> when the limiter knows it) as the rejection handler.</summary>
     public static RateLimiterOptions UseProblemDetailsRejection(this RateLimiterOptions options, string errorCode = "rate-limited")
     {
