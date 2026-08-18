@@ -94,6 +94,49 @@ public static class RateLimiterOptionsExtensions
         return limiterOptions;
     }
 
+    /// <summary>
+    /// Adds a token-bucket policy partitioned by a custom key selector. Unlike fixed-window's
+    /// hard reset at each window boundary, tokens replenish continuously (<paramref name="tokensPerPeriod"/>
+    /// added every <paramref name="replenishmentPeriod"/>), making this suited to steady-state
+    /// throttles rather than burst ceilings.
+    /// </summary>
+    public static RateLimiterOptions AddPartitionedTokenBucket(
+        this RateLimiterOptions options,
+        string policyName,
+        Func<HttpContext, string?> partitionKeySelector,
+        int tokenLimit,
+        int tokensPerPeriod,
+        TimeSpan replenishmentPeriod,
+        Action<TokenBucketRateLimiterOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(partitionKeySelector);
+
+        options.AddPolicy(policyName, context => RateLimitPartition.GetTokenBucketLimiter(
+            partitionKey: NormalizePartitionKey(partitionKeySelector(context)),
+            factory: _ => BuildTokenBucketOptions(tokenLimit, tokensPerPeriod, replenishmentPeriod, configure)));
+
+        return options;
+    }
+
+    private static TokenBucketRateLimiterOptions BuildTokenBucketOptions(
+        int tokenLimit,
+        int tokensPerPeriod,
+        TimeSpan replenishmentPeriod,
+        Action<TokenBucketRateLimiterOptions>? configure)
+    {
+        var limiterOptions = new TokenBucketRateLimiterOptions
+        {
+            TokenLimit = tokenLimit,
+            TokensPerPeriod = tokensPerPeriod,
+            ReplenishmentPeriod = replenishmentPeriod,
+            QueueLimit = 0,
+        };
+
+        configure?.Invoke(limiterOptions);
+        return limiterOptions;
+    }
+
     private static string NormalizePartitionKey(string? partitionKey)
         => string.IsNullOrWhiteSpace(partitionKey) ? "unknown" : partitionKey;
 
@@ -122,6 +165,35 @@ public static class RateLimiterOptionsExtensions
             return RateLimitPartition.GetFixedWindowLimiter(
                 partitionKey: NormalizePartitionKey(partitionKeySelector(context)),
                 factory: _ => BuildFixedWindowOptions(permitLimit, window, configure));
+        });
+    }
+
+    /// <summary>
+    /// Builds a single token-bucket <see cref="PartitionedRateLimiter{HttpContext}"/> tier for
+    /// composing into <see cref="RateLimiterOptions.GlobalLimiter"/> via <see cref="UseChainedGlobalLimiter"/>,
+    /// mirroring <see cref="CreateFixedWindowTier"/>. Typically chained after a fixed-window burst-ceiling
+    /// tier to add a continuously-replenishing steady-state throttle underneath it.
+    /// </summary>
+    public static PartitionedRateLimiter<HttpContext> CreateTokenBucketTier(
+        Func<HttpContext, string?> partitionKeySelector,
+        int tokenLimit,
+        int tokensPerPeriod,
+        TimeSpan replenishmentPeriod,
+        Func<HttpContext, bool>? isExempt = null,
+        Action<TokenBucketRateLimiterOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(partitionKeySelector);
+
+        return PartitionedRateLimiter.Create<HttpContext, string>(context =>
+        {
+            if (isExempt?.Invoke(context) == true)
+            {
+                return RateLimitPartition.GetNoLimiter("exempt");
+            }
+
+            return RateLimitPartition.GetTokenBucketLimiter(
+                partitionKey: NormalizePartitionKey(partitionKeySelector(context)),
+                factory: _ => BuildTokenBucketOptions(tokenLimit, tokensPerPeriod, replenishmentPeriod, configure));
         });
     }
 
