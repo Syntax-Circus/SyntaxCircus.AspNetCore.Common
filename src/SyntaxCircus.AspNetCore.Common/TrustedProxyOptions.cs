@@ -11,7 +11,7 @@ public sealed class TrustedProxyOptions
     public IReadOnlyList<string> TrustedNetworks { get; set; } = [];
 
     /// <summary>
-    /// When true (the default), <see cref="TrustedProxyValidation.ValidateTrustedProxyConfiguration"/>
+    /// When true (the default), <see cref="TrustedProxyExtensions.ValidateTrustedProxyConfiguration"/>
     /// throws at startup outside Development if neither list is configured.
     /// </summary>
     public bool RequireTrustedProxiesInProduction { get; set; } = true;

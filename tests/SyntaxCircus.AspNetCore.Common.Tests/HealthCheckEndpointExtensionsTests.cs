@@ -63,4 +63,32 @@ public class HealthCheckEndpointExtensionsTests
 
         body.ShouldContain("custom-check");
     }
+
+    [Fact]
+    public async Task GetHealthLive_MetadataFactoryProvided_IncludedInResponse()
+    {
+        using var server = TestServerFactory.Create(
+            services => services.AddHealthChecks(),
+            app =>
+            {
+                app.UseRouting();
+                app.MapStandardHealthChecks(metadataFactory: _ => new Dictionary<string, object?> { ["version"] = "1.2.3" });
+            });
+        using var client = server.CreateClient();
+
+        var body = await client.GetStringAsync(new Uri("/health/live", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        body.ShouldContain("\"metadata\":{\"version\":\"1.2.3\"}");
+    }
+
+    [Fact]
+    public async Task GetHealthLive_NoMetadataFactory_MetadataKeyOmitted()
+    {
+        using var server = CreateServer();
+        using var client = server.CreateClient();
+
+        var body = await client.GetStringAsync(new Uri("/health/live", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        body.ShouldNotContain("metadata");
+    }
 }

@@ -144,4 +144,85 @@ public class TrustedProxyExtensionsTests
 
         options.KnownIPNetworks.ShouldBeEmpty();
     }
+
+    [Fact]
+    public void AddTrustedProxyForwardedHeaders_ForwardsForProtoAndHost()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+        var services = new ServiceCollection();
+        services.AddTrustedProxyForwardedHeaders(configuration);
+
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<IOptions<ForwardedHeadersOptions>>().Value;
+
+        options.ForwardedHeaders.ShouldBe(
+            ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost);
+    }
+
+    private static ServiceProvider ServiceProviderWithEnvironment(IHostEnvironment environment)
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(environment);
+        return services.BuildServiceProvider();
+    }
+
+    private static IStartupFilter GetRegisteredStartupFilter(IConfiguration configuration)
+    {
+        var services = new ServiceCollection();
+        services.AddTrustedProxyForwardedHeaders(configuration);
+        using var provider = services.BuildServiceProvider();
+        return provider.GetServices<IStartupFilter>().Single();
+    }
+
+    [Fact]
+    public void AddTrustedProxyForwardedHeaders_RegistersExactlyOneStartupFilter()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+        var services = new ServiceCollection();
+        services.AddTrustedProxyForwardedHeaders(configuration);
+
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetServices<IStartupFilter>().ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public void AddTrustedProxyForwardedHeaders_NonDevelopmentNoConfig_RegisteredStartupFilterThrows()
+    {
+        var startupFilter = GetRegisteredStartupFilter(new ConfigurationBuilder().Build());
+        var provider = ServiceProviderWithEnvironment(FakeEnvironment("Production"));
+        var appBuilder = Substitute.For<IApplicationBuilder>();
+        appBuilder.ApplicationServices.Returns(provider);
+
+        Should.Throw<InvalidOperationException>(() => startupFilter.Configure(_ => { })(appBuilder));
+    }
+
+    [Fact]
+    public void AddTrustedProxyForwardedHeaders_NonDevelopmentConfigured_RegisteredStartupFilterDoesNotThrowAndCallsNext()
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["TrustedProxy:TrustedProxies:0"] = "10.0.0.5",
+        }).Build();
+        var startupFilter = GetRegisteredStartupFilter(configuration);
+        var provider = ServiceProviderWithEnvironment(FakeEnvironment("Production"));
+        var appBuilder = Substitute.For<IApplicationBuilder>();
+        appBuilder.ApplicationServices.Returns(provider);
+        var nextCalled = false;
+
+        Should.NotThrow(() => startupFilter.Configure(_ => nextCalled = true)(appBuilder));
+
+        nextCalled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void AddTrustedProxyForwardedHeaders_Development_RegisteredStartupFilterDoesNotThrowEvenWithoutConfig()
+    {
+        var startupFilter = GetRegisteredStartupFilter(new ConfigurationBuilder().Build());
+        var provider = ServiceProviderWithEnvironment(FakeEnvironment("Development"));
+        var appBuilder = Substitute.For<IApplicationBuilder>();
+        appBuilder.ApplicationServices.Returns(provider);
+
+        Should.NotThrow(() => startupFilter.Configure(_ => { })(appBuilder));
+    }
 }
