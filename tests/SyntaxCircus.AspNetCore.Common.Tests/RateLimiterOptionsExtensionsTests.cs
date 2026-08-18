@@ -284,10 +284,113 @@ public class RateLimiterOptionsExtensionsTests
     }
 
     [Fact]
+    public void AddPartitionedTokenBucket_NullOptions_ThrowsArgumentNullException()
+    {
+        Should.Throw<ArgumentNullException>(() =>
+            RateLimiterOptionsExtensions.AddPartitionedTokenBucket(
+                null!,
+                "policy",
+                _ => "key",
+                1,
+                1,
+                TimeSpan.FromMinutes(1)));
+    }
+
+    [Fact]
+    public void AddPartitionedTokenBucket_NullPartitionKeySelector_ThrowsArgumentNullException()
+    {
+        var options = new RateLimiterOptions();
+        Should.Throw<ArgumentNullException>(() =>
+            options.AddPartitionedTokenBucket(
+                "policy",
+                null!,
+                1,
+                1,
+                TimeSpan.FromMinutes(1)));
+    }
+
+    [Fact]
+    public async Task AddPartitionedTokenBucket_ExceedingTokenLimitWithinPeriod_RejectsExcessRequests()
+    {
+        using var server = TestServerFactory.Create(
+            services =>
+            {
+                services.AddProblemDetailsExceptionHandling();
+                services.AddRateLimiter(options =>
+                {
+                    options.AddPartitionedTokenBucket(
+                        "token-bucket-policy",
+                        ctx => ctx.Connection.RemoteIpAddress?.ToString(),
+                        tokenLimit: 2,
+                        tokensPerPeriod: 2,
+                        replenishmentPeriod: TimeSpan.FromMinutes(1));
+                    options.UseProblemDetailsRejection();
+                });
+            },
+            app =>
+            {
+                app.UseRouting();
+                app.UseRateLimiter();
+                app.MapGet("/limited", () => "ok").RequireRateLimiting("token-bucket-policy");
+            });
+        using var client = server.CreateClient();
+
+        var first = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+        var second = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+        var third = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        first.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        second.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        third.StatusCode.ShouldBe((System.Net.HttpStatusCode)429);
+        third.Content.Headers.ContentType!.MediaType.ShouldBe("application/problem+json");
+    }
+
+    [Fact]
+    public async Task AddPartitionedTokenBucket_RequestsSpreadAcrossReplenishmentPeriods_Succeed()
+    {
+        using var server = TestServerFactory.Create(
+            services =>
+            {
+                services.AddProblemDetailsExceptionHandling();
+                services.AddRateLimiter(options =>
+                {
+                    options.AddPartitionedTokenBucket(
+                        "token-bucket-policy",
+                        ctx => ctx.Connection.RemoteIpAddress?.ToString(),
+                        tokenLimit: 1,
+                        tokensPerPeriod: 1,
+                        replenishmentPeriod: TimeSpan.FromMilliseconds(50));
+                    options.UseProblemDetailsRejection();
+                });
+            },
+            app =>
+            {
+                app.UseRouting();
+                app.UseRateLimiter();
+                app.MapGet("/limited", () => "ok").RequireRateLimiting("token-bucket-policy");
+            });
+        using var client = server.CreateClient();
+
+        var first = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(250), TestContext.Current.CancellationToken);
+        var second = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        first.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        second.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+    }
+
+    [Fact]
     public void CreateFixedWindowTier_NullPartitionKeySelector_ThrowsArgumentNullException()
     {
         Should.Throw<ArgumentNullException>(() =>
             RateLimiterOptionsExtensions.CreateFixedWindowTier(null!, 1, TimeSpan.FromMinutes(1)));
+    }
+
+    [Fact]
+    public void CreateTokenBucketTier_NullPartitionKeySelector_ThrowsArgumentNullException()
+    {
+        Should.Throw<ArgumentNullException>(() =>
+            RateLimiterOptionsExtensions.CreateTokenBucketTier(null!, 1, 1, TimeSpan.FromMinutes(1)));
     }
 
     [Fact]
@@ -401,5 +504,67 @@ public class RateLimiterOptionsExtensionsTests
         limitedSecond.StatusCode.ShouldBe((System.Net.HttpStatusCode)429);
         exemptFirst.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
         exemptSecond.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task UseChainedGlobalLimiter_FixedWindowAndTokenBucketChained_FixedWindowTierExhausted_Rejects()
+    {
+        // Reproduces AgentToolsPolicy's burst-ceiling (fixed-window) + steady-state-throttle
+        // (token-bucket) chain: a request must pass both tiers.
+        using var server = TestServerFactory.Create(
+            services =>
+            {
+                services.AddProblemDetailsExceptionHandling();
+                services.AddRateLimiter(options =>
+                {
+                    options.UseChainedGlobalLimiter(
+                        RateLimiterOptionsExtensions.CreateFixedWindowTier(_ => "shared-actor", permitLimit: 1, window: TimeSpan.FromMinutes(1)),
+                        RateLimiterOptionsExtensions.CreateTokenBucketTier(_ => "shared-actor", tokenLimit: 100, tokensPerPeriod: 100, replenishmentPeriod: TimeSpan.FromSeconds(1)));
+                    options.UseProblemDetailsRejection();
+                });
+            },
+            app =>
+            {
+                app.UseRouting();
+                app.UseRateLimiter();
+                app.MapGet("/limited", () => "ok");
+            });
+        using var client = server.CreateClient();
+
+        var first = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+        var second = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        first.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        second.StatusCode.ShouldBe((System.Net.HttpStatusCode)429);
+    }
+
+    [Fact]
+    public async Task UseChainedGlobalLimiter_FixedWindowAndTokenBucketChained_TokenBucketTierExhausted_Rejects()
+    {
+        using var server = TestServerFactory.Create(
+            services =>
+            {
+                services.AddProblemDetailsExceptionHandling();
+                services.AddRateLimiter(options =>
+                {
+                    options.UseChainedGlobalLimiter(
+                        RateLimiterOptionsExtensions.CreateFixedWindowTier(_ => "shared-actor", permitLimit: 100, window: TimeSpan.FromMinutes(1)),
+                        RateLimiterOptionsExtensions.CreateTokenBucketTier(_ => "shared-actor", tokenLimit: 1, tokensPerPeriod: 1, replenishmentPeriod: TimeSpan.FromMinutes(1)));
+                    options.UseProblemDetailsRejection();
+                });
+            },
+            app =>
+            {
+                app.UseRouting();
+                app.UseRateLimiter();
+                app.MapGet("/limited", () => "ok");
+            });
+        using var client = server.CreateClient();
+
+        var first = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+        var second = await client.GetAsync(new Uri("/limited", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        first.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        second.StatusCode.ShouldBe((System.Net.HttpStatusCode)429);
     }
 }
