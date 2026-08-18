@@ -28,7 +28,21 @@ var app = builder.Build();
 app.UseSecurityHeaders();
 ```
 
-Sets `Referrer-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Permissions-Policy`, `Content-Security-Policy`, and `Strict-Transport-Security` from `SecurityHeadersOptions`, with sensible defaults you can override per-key in configuration.
+Sets `Referrer-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Permissions-Policy`, `Content-Security-Policy`, and `Strict-Transport-Security` from `SecurityHeadersOptions`, with sensible defaults you can override per-key in configuration. `X-Robots-Tag` is also supported (`RobotsTag`) but omitted entirely unless set.
+
+Some routes need different values than the rest of the app — e.g. a public, unauthenticated page that must never leak a referrer or get indexed. Configure `PathOverrides` for that instead of writing a second middleware:
+
+```json
+{
+  "SecurityHeaders": {
+    "PathOverrides": [
+      { "PathPrefix": "/public-profile", "ReferrerPolicy": "no-referrer", "RobotsTag": "noindex, nofollow" }
+    ]
+  }
+}
+```
+
+The first entry whose `PathPrefix` matches the request path (via `PathString.StartsWithSegments`) wins; everything else keeps the top-level defaults.
 
 ## Exception handling / HSTS bootstrap
 
@@ -74,15 +88,17 @@ builder.Services.AddProblemDetailsExceptionHandling(options =>
 ```csharp
 builder.Services.AddTrustedProxyForwardedHeaders(builder.Configuration); // binds the "TrustedProxy" section
 
-var trustedProxyOptions = new TrustedProxyOptions();
-builder.Configuration.GetSection(TrustedProxyOptions.SectionName).Bind(trustedProxyOptions);
-builder.Environment.ValidateTrustedProxyConfiguration(trustedProxyOptions); // throws outside Development if misconfigured
-
 var app = builder.Build();
 app.UseForwardedHeaders();
 ```
 
-Fails fast at startup if you're running behind a reverse proxy without telling ASP.NET Core which upstream hosts to actually trust — without `TrustedProxies`/`TrustedNetworks` configured, forwarded headers (`X-Forwarded-For`/`-Proto`) would otherwise be trusted from anyone.
+Wires `ForwardedHeadersOptions` (`X-Forwarded-For`/`-Proto`/`-Host`) from `TrustedProxies`/`TrustedNetworks`, and automatically fails fast at startup if you're running behind a reverse proxy without telling ASP.NET Core which upstream hosts to actually trust — with neither configured, forwarded headers would otherwise be trusted from anyone. This validation runs on its own (via a registered `IStartupFilter`); you don't need to call anything else for it to take effect.
+
+If you want to trigger the same check outside the normal startup path (e.g. in a test), `ValidateTrustedProxyConfiguration` is available directly:
+
+```csharp
+builder.Environment.ValidateTrustedProxyConfiguration(trustedProxyOptions); // throws outside Development if misconfigured
+```
 
 ## Health checks
 
@@ -92,6 +108,12 @@ app.MapStandardHealthChecks(); // /health/live (no checks run) and /health/ready
 ```
 
 Maps standard liveness/readiness endpoints rendered via `HealthCheckResponseWriter` (status, total duration, and per-check name/status/duration/description as JSON). Register your own `IHealthCheck` implementations with `AddHealthChecks().AddCheck<T>(tags: ["ready"])` as usual — this just standardizes the endpoints and response shape.
+
+Pass `metadataFactory` to include extra data (e.g. an app version) under a `metadata` key — invoked per-request, omitted entirely when not supplied:
+
+```csharp
+app.MapStandardHealthChecks(metadataFactory: _ => new Dictionary<string, object?> { ["version"] = appVersion });
+```
 
 ## Rate limiting
 

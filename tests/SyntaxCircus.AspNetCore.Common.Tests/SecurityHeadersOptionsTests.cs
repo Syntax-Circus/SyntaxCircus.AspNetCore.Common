@@ -13,11 +13,23 @@ public class SecurityHeadersOptionsTests
         options.PermissionsPolicy.ShouldBe("camera=(), geolocation=(), microphone=()");
         options.ContentSecurityPolicy.ShouldBe("base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests");
         options.StrictTransportSecurity.ShouldBe("max-age=31536000; includeSubDomains");
+        options.RobotsTag.ShouldBeNull();
+        options.PathOverrides.ShouldBeEmpty();
     }
 
     [Fact]
     public void SectionName_IsSecurityHeaders()
     {
         SecurityHeadersOptions.SectionName.ShouldBe("SecurityHeaders");
+    }
+
+    [Fact]
+    public void PathOverrideDefaults_AreExpected()
+    {
+        var pathOverride = new SecurityHeadersPathOverride();
+
+        pathOverride.PathPrefix.ShouldBe(string.Empty);
+        pathOverride.ReferrerPolicy.ShouldBeNull();
+        pathOverride.RobotsTag.ShouldBeNull();
     }
 }

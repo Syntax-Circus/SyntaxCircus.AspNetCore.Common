@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.HttpOverrides;
 
 namespace SyntaxCircus.AspNetCore.Common;
@@ -32,7 +33,12 @@ public static class TrustedProxyExtensions
         }
     }
 
-    /// <summary>Binds <see cref="TrustedProxyOptions"/> from configuration and wires <see cref="ForwardedHeadersOptions"/> from it.</summary>
+    /// <summary>
+    /// Binds <see cref="TrustedProxyOptions"/> from configuration, wires <see cref="ForwardedHeadersOptions"/>
+    /// from it, and registers an <see cref="IStartupFilter"/> that calls
+    /// <see cref="ValidateTrustedProxyConfiguration"/> automatically when the app starts — a consumer doesn't
+    /// need to call that method separately for the fail-closed check to take effect.
+    /// </summary>
     public static IServiceCollection AddTrustedProxyForwardedHeaders(this IServiceCollection services, IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -43,7 +49,8 @@ public static class TrustedProxyExtensions
 
         services.Configure<ForwardedHeadersOptions>(forwardedHeadersOptions =>
         {
-            forwardedHeadersOptions.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+            forwardedHeadersOptions.ForwardedHeaders =
+                ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
             forwardedHeadersOptions.KnownProxies.Clear();
             forwardedHeadersOptions.KnownIPNetworks.Clear();
 
@@ -67,6 +74,18 @@ public static class TrustedProxyExtensions
             }
         });
 
+        services.AddSingleton<IStartupFilter>(new TrustedProxyValidationStartupFilter(options));
+
         return services;
+    }
+
+    private sealed class TrustedProxyValidationStartupFilter(TrustedProxyOptions options) : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.ApplicationServices.GetRequiredService<IHostEnvironment>()
+                .ValidateTrustedProxyConfiguration(options);
+            next(app);
+        };
     }
 }
