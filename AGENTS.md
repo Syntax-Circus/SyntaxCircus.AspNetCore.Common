@@ -71,6 +71,124 @@ the match fall back to the top-level default, not to `null`.
 ] } }
 ```
 
+## Search indexing
+
+```csharp
+builder.Services.AddSearchIndexing(builder.Configuration); // binds "SearchIndexing" section
+var app = builder.Build();
+app.UseSearchIndexingHeaders(); // reads BlockPageMetadata per request
+```
+
+| Member | Signature | Behavior |
+| --- | --- | --- |
+| `AddSearchIndexing` | `IServiceCollection AddSearchIndexing(this IServiceCollection services, IConfiguration configuration)` | Binds `SearchIndexingOptions` from the `"SearchIndexing"` config section (`SearchIndexingOptions.SectionName`). |
+| `UseSearchIndexingHeaders` (parameterless) | `IApplicationBuilder UseSearchIndexingHeaders(this IApplicationBuilder app)` | Writes `options.RobotsDirective` when `options.BlockPageMetadata` is `true` and the request path isn't excluded (hardcoded `/robots.txt`/`/sitemap.xml` plus `options.ExcludedPaths`). Requires `AddSearchIndexing` (or another registration of `IOptions<SearchIndexingOptions>`) to have run first. |
+| `UseSearchIndexingHeaders` (predicate) | `IApplicationBuilder UseSearchIndexingHeaders(this IApplicationBuilder app, Func<HttpContext, bool> shouldApply)` | On `Response.OnStarting`, sets `X-Robots-Tag` to the **fixed** `SearchIndexingOptions.NoIndexDirective` value **only if** `shouldApply(context)` is `true` **and** the response doesn't already have an `X-Robots-Tag` header. Never overwrites an existing value, and never reads `RobotsDirective` — that's the parameterless overload's job only. Use this overload directly when the condition isn't a static config flag (per-host, per-environment, etc.). |
+| `SearchIndexingOptions.BlockPageMetadata` | `bool` (default `false`) | Consulted only by the parameterless `UseSearchIndexingHeaders()` overload. |
+| `SearchIndexingOptions.RobotsDirective` | `string` (default `NoIndexDirective`) | The literal value the parameterless overload writes to `X-Robots-Tag`. Settable independently of `NoIndexDirective` — e.g. `"noindex"` alone, or `"noindex,nofollow,noarchive"`. **Not** consulted by the predicate overload. |
+| `SearchIndexingOptions.BlockRobotsAndSitemap` | `bool` (default `false`) | Consulted only by `MapRobotsTxt`/`MapSitemap` (see [Search discovery endpoints](#search-discovery-endpoints)). Not read by `UseSearchIndexingHeaders` at all. |
+| `SearchIndexingOptions.ExcludedPaths` | `IReadOnlyList<string>` (default `[]`) | Consulted only by the parameterless `UseSearchIndexingHeaders()` overload — **additive** on top of a hardcoded, always-on exclusion of `/robots.txt` and `/sitemap.xml` (see gotcha below on why it defaults empty instead of pre-populated). |
+| `SearchIndexingOptions.SectionName` | `const string` = `"SearchIndexing"` | Config section bound by `AddSearchIndexing`. |
+| `SearchIndexingOptions.NoIndexDirective` | `const string` = `"noindex,nofollow"` | The value the predicate overload always writes, and `RobotsDirective`'s default. |
+| `SearchIndexingOptions.DisallowAllRobotsTxt` | `const string` = `"User-agent: *\nDisallow: /"` | The body `MapRobotsTxt` writes when `BlockRobotsAndSitemap` is `true`. |
+
+Both public overloads share a private `UseRobotsTagHeader(Func<HttpContext, string?> valueSelector)`
+core (`null`/empty return = don't set) — the `OnStarting`/`ContainsKey` mechanics live in exactly
+one place. Don't reintroduce per-overload duplication of that logic; add new behavior by changing
+what a `valueSelector` returns, not by touching the `OnStarting` plumbing itself.
+
+**Gotcha for agents touching `ExcludedPaths`:** it defaults to `[]`, not to
+`["/robots.txt", "/sitemap.xml"]`, even though those two paths are always skipped. This is
+deliberate, not an oversight — `Microsoft.Extensions.Configuration`'s binder does not *replace* a
+pre-populated `IReadOnlyList<T>`/`List<T>` default when binding indexed keys (`ExcludedPaths:0`
+etc.); it **appends** to whatever the C# default already contains (verified empirically: binding
+`ExcludedPaths:0 = "/health"` against a `["/robots.txt", "/sitemap.xml"]` default produces a
+3-element list, not a 1-element list). A pre-populated default would make `ExcludedPaths` from
+config permanently un-shrinkable. So the two conventional paths are hardcoded directly in
+`SearchIndexingHeaderExtensions.UseSearchIndexingHeaders()` instead, and the config-bound list
+starts empty like every other list option in this package (`TrustedProxyOptions.TrustedProxies`,
+`SecurityHeadersOptions.PathOverrides`, etc.) and is purely additive. Don't "fix" this by giving
+`ExcludedPaths` a non-empty default — it reintroduces the same footgun.
+
+**Gotcha for agents combining this with security headers:** both `UseSecurityHeaders` and
+`UseSearchIndexingHeaders` write `X-Robots-Tag` from a `Response.OnStarting` callback, and
+`HttpResponse.OnStarting` callbacks run **last-registered-first** (a stack, not a queue).
+`UseSecurityHeaders`'s callback sets `X-Robots-Tag` **unconditionally** whenever
+`SecurityHeadersOptions.RobotsTag` (or a matching `PathOverride.RobotsTag`) is non-empty for that
+path — it does not check for an existing header. `UseSearchIndexingHeaders`'s callback checks
+`ContainsKey` first and never overwrites. Working through both registration orders: if
+`UseSecurityHeaders` runs later in the pipeline than `UseSearchIndexingHeaders`, its callback
+fires *first* (LIFO) and sets the header unconditionally, so `UseSearchIndexingHeaders`'s callback
+then sees it already set and backs off. If `UseSecurityHeaders` runs *earlier* in the pipeline,
+its callback fires *second* and overwrites whatever `UseSearchIndexingHeaders` just set. Either
+way, **a configured `SecurityHeadersOptions.RobotsTag`/`PathOverride` for a path always wins over
+`UseSearchIndexingHeaders`'s `noindex,nofollow`**, independent of `Use...` call order. Don't "fix"
+an unexpected `X-Robots-Tag` value by reordering the `Use...` calls — it won't change the outcome
+when `SecurityHeaders` has `RobotsTag` configured for that path; unset it there instead if
+`SearchIndexingHeaders` is meant to control that path.
+
+## Search discovery endpoints
+
+```csharp
+app.MapRobotsTxt(_ => "User-agent: *\nAllow: /\nSitemap: https://example.com/sitemap.xml");
+app.MapSitemap(_ => [new SitemapEntry("https://example.com/", LastModified: DateOnly.FromDateTime(DateTime.UtcNow))]);
+```
+
+Namespace: `SyntaxCircus.AspNetCore.Common`, file `SearchDiscoveryEndpointExtensions.cs`.
+
+| Member | Signature | Behavior |
+| --- | --- | --- |
+| `MapRobotsTxt` (sync) | `IEndpointRouteBuilder MapRobotsTxt(this IEndpointRouteBuilder endpoints, Func<HttpContext, string> contentFactory, string route = "/robots.txt", TimeSpan? cacheDuration = null)` | Thin wrapper — calls the async overload with `context => Task.FromResult(contentFactory(context))`. |
+| `MapRobotsTxt` (async) | `IEndpointRouteBuilder MapRobotsTxt(this IEndpointRouteBuilder endpoints, Func<HttpContext, Task<string>> contentFactory, string route = "/robots.txt", TimeSpan? cacheDuration = null)` | Maps a `text/plain` GET at `route`. If `IOptions<SearchIndexingOptions>.Value.BlockRobotsAndSitemap` is `true`, writes `SearchIndexingOptions.DisallowAllRobotsTxt` and **does not invoke** `contentFactory`; otherwise awaits `contentFactory(context)` and writes it verbatim (no escaping/transformation — caller owns the full body, including any `Sitemap:` line). `cacheDuration`, when set, writes `Cache-Control: public, max-age=<seconds>` before the body — applied regardless of blocked/unblocked, since this endpoint always returns `200`. Mapped `.AllowAnonymous()`. |
+| `MapSitemap` (sync) | `IEndpointRouteBuilder MapSitemap(this IEndpointRouteBuilder endpoints, Func<HttpContext, IReadOnlyList<SitemapEntry>> entriesFactory, string route = "/sitemap.xml", TimeSpan? cacheDuration = null)` | Thin wrapper — calls the async overload with `context => Task.FromResult(entriesFactory(context))`. |
+| `MapSitemap` (async) | `IEndpointRouteBuilder MapSitemap(this IEndpointRouteBuilder endpoints, Func<HttpContext, Task<IReadOnlyList<SitemapEntry>>> entriesFactory, string route = "/sitemap.xml", TimeSpan? cacheDuration = null)` | Maps an `application/xml` GET at `route`. If `BlockRobotsAndSitemap` is `true`, returns `404` and **does not invoke** `entriesFactory` or apply `cacheDuration` (a blocked sitemap's `404` is intentionally never cache-controlled — avoids a CDN pinning a stale `404` across a `BlockRobotsAndSitemap` flip); otherwise awaits `entriesFactory(context)` and builds a sitemap-protocol XML document (`http://www.sitemaps.org/schemas/sitemap/0.9`) via `System.Xml.Linq` (`<loc>` XML-escaped automatically — unlike hand-rolled string interpolation). Mapped `.AllowAnonymous()`. |
+| `SitemapEntry` | `sealed record SitemapEntry(string Url, DateOnly? LastModified = null, SitemapChangeFrequency? ChangeFrequency = null, double? Priority = null)` | One `<url>` entry. `LastModified` → `<lastmod>yyyy-MM-dd</lastmod>` (invariant culture); `ChangeFrequency` → `<changefreq>` as the lowercased enum name (matches protocol values exactly: `always`/`hourly`/`daily`/`weekly`/`monthly`/`yearly`/`never`); `Priority` → `<priority>` via plain invariant `ToString()` (**no range validation** — trust the caller, consistent with the rest of this package). All three omitted from the XML when `null`. |
+| `SitemapChangeFrequency` | `enum { Always, Hourly, Daily, Weekly, Monthly, Yearly, Never }` | Sitemap-protocol `<changefreq>` values. |
+
+Both factory delegates are invoked **per-request** (not cached at startup) and both read
+`IOptions<SearchIndexingOptions>` fresh per request too — `BlockRobotsAndSitemap` can flip via a
+reloadable config provider without an app restart. Neither requires `AddSearchIndexing` to have
+been called: `IOptions<T>` resolves to `new SearchIndexingOptions()` defaults regardless, since
+ASP.NET Core's default hosting registers the `IOptions<T>` infrastructure unconditionally.
+
+**Gotcha:** `MapRobotsTxt`'s `contentFactory` is responsible for the *entire* body when not
+blocked, including any `Sitemap:` line pointing at wherever `MapSitemap` is mapped — the two
+methods are intentionally decoupled (no shared route/base-URL wiring) so don't assume one knows
+about the other; wire the URL together yourself in the closure passed to `MapRobotsTxt`.
+
+**Gotcha for agents adding a null-arg test:** with both a sync and an async overload sharing a
+name, a bare `null!` single-argument call (e.g. `app.MapRobotsTxt(null!)`) is **ambiguous at
+compile time** (CS0121) — there's no lambda for the compiler to infer a return type from. Cast to
+the specific delegate type in test code: `app.MapRobotsTxt((Func<HttpContext, string>)null!)` vs.
+`app.MapRobotsTxt((Func<HttpContext, Task<string>>)null!)`. Real call sites with actual lambdas
+never hit this — `ctx => "text"` vs. `async ctx => await ...` resolve unambiguously via
+return-type inference.
+
+## Canonical host redirect
+
+```csharp
+builder.Services.AddCanonicalHostRedirect(builder.Configuration); // binds "CanonicalHost" section
+var app = builder.Build();
+app.UseCanonicalHostRedirect(); // early in the pipeline — before routing/auth
+```
+
+Namespace: `SyntaxCircus.AspNetCore.Common`, files `CanonicalHostOptions.cs`/`CanonicalHostExtensions.cs`.
+
+| Member | Signature | Behavior |
+| --- | --- | --- |
+| `AddCanonicalHostRedirect` | `IServiceCollection AddCanonicalHostRedirect(this IServiceCollection services, IConfiguration configuration)` | Binds `CanonicalHostOptions` from the `"CanonicalHost"` section (`CanonicalHostOptions.SectionName`). |
+| `UseCanonicalHostRedirect` | `IApplicationBuilder UseCanonicalHostRedirect(this IApplicationBuilder app)` | If `context.Request.Host.Host` case-insensitively matches an entry in `CanonicalHostOptions.LegacyHosts` **and** `CanonicalHostOptions.CanonicalHost` is set, issues a redirect (permanence per `Permanent`) to the same path/query on `CanonicalHost`, scheme per `ForceHttps`, and returns without calling `next()` — the rest of the pipeline never runs for that request. Otherwise calls `next()` normally. |
+| `CanonicalHostOptions.CanonicalHost` | `string?` (default `null`) | Target hostname, no scheme/port. `null` makes the middleware a permanent no-op — safe to register unconditionally. |
+| `CanonicalHostOptions.LegacyHosts` | `IReadOnlyList<string>` (default `[]`) | Hostnames (no scheme/port) that trigger the redirect. |
+| `CanonicalHostOptions.ForceHttps` | `bool` (default `false`) | `false` (default) preserves `context.Request.Scheme`. `true` hardcodes `"https"` for the redirect target — only for requests that are already matching a `LegacyHosts` entry; a canonical-host request on plain `http` is untouched by this middleware either way (that's `UseHsts`/`UseHttpsRedirection`'s job). |
+| `CanonicalHostOptions.Permanent` | `bool` (default `true`) | `true` → `Response.Redirect(url, permanent: true)` (301). `false` → 302, for a reversible staged rollout. |
+
+**Scheme handling is scoped narrowly:** `ForceHttps` only fires as part of a `LegacyHosts` match —
+it is not a general "redirect everything to https" switch, and adding one here would duplicate
+`UseHsts`/`UseHttpsRedirection`'s job. Don't extend this middleware to also upgrade scheme for
+already-canonical-host requests; that's a separate, orthogonal concern that belongs in the
+HTTPS-redirection layer, not here.
+
 ## Exception handling / HSTS bootstrap
 
 | Member | Signature | Behavior |
