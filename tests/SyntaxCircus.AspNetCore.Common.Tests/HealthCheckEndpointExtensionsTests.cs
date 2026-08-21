@@ -91,4 +91,64 @@ public class HealthCheckEndpointExtensionsTests
 
         body.ShouldNotContain("metadata");
     }
+
+    [Fact]
+    public async Task CustomPaths_MapsToGivenPaths_NotDefaults()
+    {
+        using var server = TestServerFactory.Create(
+            services => services.AddHealthChecks()
+                .AddCheck("ready-check", () => HealthCheckResult.Healthy(), ["ready"]),
+            app =>
+            {
+                app.UseRouting();
+                app.MapStandardHealthChecks(livePath: "/healthz", readyPath: "/health");
+            });
+        using var client = server.CreateClient();
+
+        var liveResponse = await client.GetAsync(new Uri("/healthz", UriKind.Relative), TestContext.Current.CancellationToken);
+        var readyResponse = await client.GetAsync(new Uri("/health", UriKind.Relative), TestContext.Current.CancellationToken);
+        var defaultLiveResponse = await client.GetAsync(new Uri("/health/live", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        liveResponse.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        readyResponse.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        defaultLiveResponse.StatusCode.ShouldBe(System.Net.HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task GetHealthLive_AsyncMetadataFactoryProvided_IncludedInResponse()
+    {
+        using var server = TestServerFactory.Create(
+            services => services.AddHealthChecks(),
+            app =>
+            {
+                app.UseRouting();
+                app.MapStandardHealthChecks(metadataFactoryAsync: _ =>
+                    Task.FromResult<IReadOnlyDictionary<string, object?>>(new Dictionary<string, object?> { ["version"] = "1.2.3" }));
+            });
+        using var client = server.CreateClient();
+
+        var body = await client.GetStringAsync(new Uri("/health/live", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        body.ShouldContain("\"metadata\":{\"version\":\"1.2.3\"}");
+    }
+
+    [Fact]
+    public async Task GetHealthLive_BothMetadataFactoriesProvided_AsyncTakesPrecedence()
+    {
+        using var server = TestServerFactory.Create(
+            services => services.AddHealthChecks(),
+            app =>
+            {
+                app.UseRouting();
+                app.MapStandardHealthChecks(
+                    metadataFactory: _ => new Dictionary<string, object?> { ["version"] = "sync" },
+                    metadataFactoryAsync: _ =>
+                        Task.FromResult<IReadOnlyDictionary<string, object?>>(new Dictionary<string, object?> { ["version"] = "async" }));
+            });
+        using var client = server.CreateClient();
+
+        var body = await client.GetStringAsync(new Uri("/health/live", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        body.ShouldContain("\"metadata\":{\"version\":\"async\"}");
+    }
 }

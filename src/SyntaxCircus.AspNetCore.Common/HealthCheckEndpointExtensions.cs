@@ -6,29 +6,41 @@ namespace SyntaxCircus.AspNetCore.Common;
 public static class HealthCheckEndpointExtensions
 {
     /// <summary>
-    /// Maps <c>/health/live</c> (no checks run — just confirms the process is up) and
-    /// <c>/health/ready</c> (runs checks tagged <paramref name="readyTag"/>), both rendered via
-    /// <see cref="HealthCheckResponseWriter"/>. <paramref name="metadataFactory"/> is optional and, when
-    /// given, is invoked per-request and its result included under the response's <c>metadata</c> key
-    /// (e.g. to surface an app version) — see <see cref="HealthCheckResponseWriter.WriteJsonAsync"/>.
+    /// Maps a liveness endpoint at <paramref name="livePath"/> (no checks run — just confirms the process
+    /// is up) and a readiness endpoint at <paramref name="readyPath"/> (runs checks tagged
+    /// <paramref name="readyTag"/>), both rendered via <see cref="HealthCheckResponseWriter"/>.
+    /// <paramref name="metadataFactoryAsync"/> and <paramref name="metadataFactory"/> are optional and, when
+    /// given, are invoked per-request and their result included under the response's <c>metadata</c> key
+    /// (e.g. to surface an app version, or async state like a background job snapshot) — see
+    /// <see cref="HealthCheckResponseWriter.WriteJsonAsync"/>. When both are given,
+    /// <paramref name="metadataFactoryAsync"/> takes precedence.
     /// </summary>
     public static IEndpointRouteBuilder MapStandardHealthChecks(
         this IEndpointRouteBuilder endpoints,
         string readyTag = "ready",
-        Func<HttpContext, IReadOnlyDictionary<string, object?>>? metadataFactory = null)
+        Func<HttpContext, IReadOnlyDictionary<string, object?>>? metadataFactory = null,
+        string livePath = "/health/live",
+        string readyPath = "/health/ready",
+        Func<HttpContext, Task<IReadOnlyDictionary<string, object?>>>? metadataFactoryAsync = null)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
-        Task WriteResponse(HttpContext context, HealthReport report) =>
-            HealthCheckResponseWriter.WriteJsonAsync(context, report, metadataFactory?.Invoke(context));
+        async Task WriteResponse(HttpContext context, HealthReport report)
+        {
+            var metadata = metadataFactoryAsync is not null
+                ? await metadataFactoryAsync(context)
+                : metadataFactory?.Invoke(context);
 
-        endpoints.MapHealthChecks("/health/live", new HealthCheckOptions
+            await HealthCheckResponseWriter.WriteJsonAsync(context, report, metadata);
+        }
+
+        endpoints.MapHealthChecks(livePath, new HealthCheckOptions
         {
             Predicate = _ => false,
             ResponseWriter = WriteResponse,
         });
 
-        endpoints.MapHealthChecks("/health/ready", new HealthCheckOptions
+        endpoints.MapHealthChecks(readyPath, new HealthCheckOptions
         {
             Predicate = check => check.Tags.Contains(readyTag),
             ResponseWriter = WriteResponse,
