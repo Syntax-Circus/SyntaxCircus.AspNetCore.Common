@@ -8,6 +8,23 @@ The small pieces of ASP.NET Core host boilerplate that show up in nearly every p
 
 > **No support guaranteed.** Published as-is and maintained on a best-effort basis. Issues and PRs are welcome, but there's no SLA — fork it or vendor what you need if that's not enough.
 
+## Blazor Web App static assets
+
+For a .NET 10 Blazor Web App, map static assets before the component fallback and select the render mode at the host:
+
+```csharp
+app.MapRazorComponentsWithStaticAssets<App>()
+    .AddInteractiveServerRenderMode();
+```
+
+The host page must reference the boot script through the static-asset collection so publishing can fingerprint it:
+
+```razor
+<script src="@Assets["_framework/blazor.web.js"]"></script>
+```
+
+Keep deployment verification in the application: make the Docker publish stage assert that `wwwroot/_framework/blazor.web.js` exists, and integration-test that the host page emits a static-asset boot-script URL. Smoke-test `/_framework/blazor.web.js` against the deployed host. If the direct Kestrel request is 404, fix the application or image before investigating reverse-proxy routing.
+
 ## Correlation ID
 
 ```csharp

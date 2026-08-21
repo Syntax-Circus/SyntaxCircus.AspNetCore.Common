@@ -236,6 +236,12 @@ intent; use the options flag instead so the behavior stays centrally controlled.
 | `TrustedProxyOptions.TrustedNetworks` | `IReadOnlyList<string>` (default `[]`) | CIDR ranges, e.g. `"10.0.0.0/8"`. |
 | `TrustedProxyOptions.RequireTrustedProxiesInProduction` | `bool` (default `true`) | Set `false` to allow an empty trust list outside Development (rare — usually a config bug, not an intended state). |
 
+## Blazor Web App static assets
+
+| Member | Signature | Behavior |
+| --- | --- | --- |
+| `MapRazorComponentsWithStaticAssets<TApp>` | `RazorComponentsEndpointConventionBuilder MapRazorComponentsWithStaticAssets<TApp>(this IEndpointRouteBuilder endpoints) where TApp : IComponent` | Calls `MapStaticAssets()` before `MapRazorComponents<TApp>()`, then returns the component builder so the host chooses its render mode. The host still owns the `@Assets["_framework/blazor.web.js"]` script reference, published-artifact assertion, host-page integration test, and deployed-host HTTP smoke test. |
+
 ## Health checks
 
 | Member | Signature | Behavior |
