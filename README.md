@@ -4,7 +4,7 @@
 [![NuGet](https://img.shields.io/nuget/v/SyntaxCircus.AspNetCore.Common.svg)](https://www.nuget.org/packages/SyntaxCircus.AspNetCore.Common)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.txt)
 
-The small pieces of ASP.NET Core host boilerplate that show up in nearly every project, in one place: correlation-ID middleware, security headers, search-indexing opt-out headers with robots.txt/sitemap.xml endpoint helpers, canonical-host redirects, a composable exception-handler/HSTS bootstrap, RFC 7807 ProblemDetails exception handling, trusted-proxy validation, standard health check endpoints, fixed-window/token-bucket rate-limiting policy helpers, and (via the optional `SyntaxCircus.AspNetCore.Common.MassTransit` package) correlation-ID propagation across a MassTransit bus.
+The small pieces of ASP.NET Core host boilerplate that show up in nearly every project, in one place: result-to-ProblemDetails mapping, correlation-ID middleware, security headers, search-indexing opt-out headers with robots.txt/sitemap.xml endpoint helpers, canonical-host redirects, a composable exception-handler/HSTS bootstrap, RFC 7807 ProblemDetails exception handling, trusted-proxy validation, standard health check endpoints, fixed-window/token-bucket rate-limiting policy helpers, and (via the optional `SyntaxCircus.AspNetCore.Common.MassTransit` package) correlation-ID propagation across a MassTransit bus.
 
 > **No support guaranteed.** Published as-is and maintained on a best-effort basis. Issues and PRs are welcome, but there's no SLA — fork it or vendor what you need if that's not enough.
 
@@ -248,6 +248,35 @@ builder.Services.AddProblemDetailsExceptionHandling(options =>
 ```
 
 `IncludeExceptionMessageInDetail` defaults to `false`. Only set it to `true` if you've verified your exception messages are safe to expose to API clients (e.g. gated to non-production environments).
+
+## Result ProblemDetails mapping
+
+`SyntaxCircus.Common` keeps application-layer results transport-neutral. Register this package's HTTP adapter once, then let each controller choose its own success response explicitly:
+
+```csharp
+builder.Services.AddResultProblemDetails(options =>
+{
+    options.BaseTypeUri = "https://errors.example.com";
+});
+```
+
+```csharp
+[HttpPost]
+public async Task<IActionResult> Create(
+    CreateWidgetRequest request,
+    CancellationToken cancellationToken)
+{
+    var result = await requestHandler.HandleAsync(request, cancellationToken);
+
+    return result.ToActionResult(
+        this,
+        widget => CreatedAtAction(nameof(Get), new { id = widget.Id }, widget));
+}
+```
+
+The adapter maps validation, unauthenticated, forbidden, not-found, conflict, and general failures to 400, 401, 403, 404, 409, and 500 by default. Override `StatusCodeMapper` when a host needs different transport semantics. `ProblemDetails.Type` is built from `BaseTypeUri` and the stable error code; `Detail` comes from the explicitly client-safe result message; and `Instance` is the request path.
+
+Validation failures become `ValidationProblemDetails`. Messages are grouped by `ResultError.Target` (request-level errors use the empty key), while stable codes are grouped the same way in the `errorCodes` extension. Controllers still own success semantics such as `Ok`, `CreatedAtAction`, `Accepted`, or `NoContent`.
 
 ## Trusted-proxy validation
 
