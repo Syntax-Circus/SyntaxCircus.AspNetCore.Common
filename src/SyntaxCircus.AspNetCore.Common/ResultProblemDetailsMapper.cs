@@ -33,11 +33,12 @@ internal sealed class ResultProblemDetailsMapper(IOptions<ResultProblemDetailsOp
 
     internal ObjectResult MapWithStatus(ControllerBase controller, ResultError error, int statusCode)
     {
+        var reasonPhrase = ReasonPhrases.GetReasonPhrase(statusCode);
         var problem = new ProblemDetails
         {
             Status = statusCode,
             Type = _options.BuildTypeUri(error.Code),
-            Title = ReasonPhrases.GetReasonPhrase(statusCode),
+            Title = string.IsNullOrEmpty(reasonPhrase) ? "Error" : reasonPhrase,
             Detail = error.Message,
             Instance = controller.HttpContext.Request.Path.Value,
         };

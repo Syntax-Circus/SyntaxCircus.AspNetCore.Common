@@ -19,9 +19,24 @@ public class ApiResultActionResultExtensionsTests
         var objectResult = GetObjectResult(actionResult);
         var problem = objectResult.Value.ShouldBeOfType<ProblemDetails>();
         objectResult.StatusCode.ShouldBe(expectedStatus);
+        problem.Title.ShouldNotBeNullOrEmpty();
         problem.Status.ShouldBe(expectedStatus);
         problem.Detail.ShouldBe("The upstream service returned an error.");
         problem.Instance.ShouldBe("/widgets/42");
+    }
+
+    [Fact]
+    public void ToActionResult_Failure_FallsBackToGenericTitleForNonStandardStatus()
+    {
+        var controller = CreateController();
+        var result = ApiResult.Failure((HttpStatusCode)520, "upstream-error", "The upstream service returned an error.");
+
+        var actionResult = result.ToActionResult(controller, () => controller.NoContent());
+
+        var objectResult = GetObjectResult(actionResult);
+        var problem = objectResult.Value.ShouldBeOfType<ProblemDetails>();
+        objectResult.StatusCode.ShouldBe(520);
+        problem.Title.ShouldBe("Error");
     }
 
     [Fact]

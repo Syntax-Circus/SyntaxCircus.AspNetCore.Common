@@ -278,6 +278,16 @@ The adapter maps validation, unauthenticated, forbidden, not-found, conflict, an
 
 Validation failures become `ValidationProblemDetails`. Messages are grouped by `ResultError.Target` (request-level errors use the empty key), while stable codes are grouped the same way in the `errorCodes` extension. Controllers still own success semantics such as `Ok`, `CreatedAtAction`, `Accepted`, or `NoContent`.
 
+### ApiResult and passthrough status codes
+
+For the rare case where a failure needs to carry an exact upstream status code (a 429/502/503 from a third-party API) rather than one of the six kinds above, use `ApiResult`/`ApiResult<T>` (from `SyntaxCircus.Common`) instead of `Result`/`Result<T>`:
+
+```csharp
+return apiResult.ToActionResult(this, widget => Ok(widget));
+```
+
+**The `ApiResult`/`ApiResult<T>` overloads are resolved by the variable's compile-time type, not a runtime check.** A handler interface that declares `Task<Result<T>>` and returns an `ApiResult<T>` internally loses the passthrough silently — the caller's `result.ToActionResult(...)` binds to the `Result<T>` overload, and the status code is discarded in favor of the default kind-based mapping. Declare the interface as `Task<ApiResult<T>>` wherever passthrough is needed.
+
 ## Trusted-proxy validation
 
 ```csharp
