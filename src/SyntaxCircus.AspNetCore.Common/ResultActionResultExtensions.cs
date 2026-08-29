@@ -31,6 +31,42 @@ public static class ResultActionResultExtensions
         return result.IsSuccess ? onSuccess(result.Value) : mapper.Map(controller, result.Errors);
     }
 
+    public static IActionResult ToActionResult(
+        this ApiResult result,
+        ControllerBase controller,
+        Func<IActionResult> onSuccess)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(controller);
+        ArgumentNullException.ThrowIfNull(onSuccess);
+
+        if (result.IsSuccess)
+        {
+            return onSuccess();
+        }
+
+        var mapper = GetMapper(controller);
+        return mapper.MapWithStatus(controller, result.Errors[0], (int)result.StatusCode!.Value);
+    }
+
+    public static IActionResult ToActionResult<T>(
+        this ApiResult<T> result,
+        ControllerBase controller,
+        Func<T, IActionResult> onSuccess)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(controller);
+        ArgumentNullException.ThrowIfNull(onSuccess);
+
+        if (result.IsSuccess)
+        {
+            return onSuccess(result.Value);
+        }
+
+        var mapper = GetMapper(controller);
+        return mapper.MapWithStatus(controller, result.Errors[0], (int)result.StatusCode!.Value);
+    }
+
     private static ResultProblemDetailsMapper GetMapper(ControllerBase controller) =>
         controller.HttpContext.RequestServices.GetService<ResultProblemDetailsMapper>()
         ?? throw new InvalidOperationException(
