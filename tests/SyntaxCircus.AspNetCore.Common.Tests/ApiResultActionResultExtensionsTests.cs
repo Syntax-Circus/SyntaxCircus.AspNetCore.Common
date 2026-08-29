@@ -106,6 +106,20 @@ public class ApiResultActionResultExtensionsTests
         callbackInvoked.ShouldBeFalse();
     }
 
+    [Fact]
+    public void ToActionResult_SuccessWithoutRegistration_ThrowsClearException()
+    {
+        using var provider = new ServiceCollection().BuildServiceProvider();
+        var context = new DefaultHttpContext { RequestServices = provider };
+        context.Request.Path = "/widgets/42";
+        var controller = new TestController { ControllerContext = new ControllerContext { HttpContext = context } };
+
+        var exception = Should.Throw<InvalidOperationException>(() =>
+            ApiResult.Success().ToActionResult(controller, () => controller.NoContent()));
+
+        exception.Message.ShouldContain(nameof(ResultProblemDetailsServiceCollectionExtensions.AddResultProblemDetails));
+    }
+
     private static TestController CreateController()
     {
         var services = new ServiceCollection();

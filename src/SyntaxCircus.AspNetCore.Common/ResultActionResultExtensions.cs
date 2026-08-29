@@ -40,13 +40,8 @@ public static class ResultActionResultExtensions
         ArgumentNullException.ThrowIfNull(controller);
         ArgumentNullException.ThrowIfNull(onSuccess);
 
-        if (result.IsSuccess)
-        {
-            return onSuccess();
-        }
-
         var mapper = GetMapper(controller);
-        return mapper.MapWithStatus(controller, result.Errors[0], (int)result.StatusCode!.Value);
+        return result.IsSuccess ? onSuccess() : mapper.MapWithStatus(controller, result.Errors[0], (int)result.StatusCode!.Value);
     }
 
     public static IActionResult ToActionResult<T>(
@@ -58,13 +53,8 @@ public static class ResultActionResultExtensions
         ArgumentNullException.ThrowIfNull(controller);
         ArgumentNullException.ThrowIfNull(onSuccess);
 
-        if (result.IsSuccess)
-        {
-            return onSuccess(result.Value);
-        }
-
         var mapper = GetMapper(controller);
-        return mapper.MapWithStatus(controller, result.Errors[0], (int)result.StatusCode!.Value);
+        return result.IsSuccess ? onSuccess(result.Value) : mapper.MapWithStatus(controller, result.Errors[0], (int)result.StatusCode!.Value);
     }
 
     private static ResultProblemDetailsMapper GetMapper(ControllerBase controller) =>
