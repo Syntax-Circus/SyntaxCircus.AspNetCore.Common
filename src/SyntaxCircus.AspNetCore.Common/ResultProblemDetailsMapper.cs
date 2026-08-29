@@ -28,7 +28,10 @@ internal sealed class ResultProblemDetailsMapper(IOptions<ResultProblemDetailsOp
             : MapProblem(controller, errors[0], statusCode);
     }
 
-    private ObjectResult MapProblem(ControllerBase controller, ResultError error, int statusCode)
+    private ObjectResult MapProblem(ControllerBase controller, ResultError error, int statusCode) =>
+        MapWithStatus(controller, error, statusCode);
+
+    internal ObjectResult MapWithStatus(ControllerBase controller, ResultError error, int statusCode)
     {
         var problem = new ProblemDetails
         {
