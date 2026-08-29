@@ -14,6 +14,11 @@ public static class ResultActionResultExtensions
         ArgumentNullException.ThrowIfNull(controller);
         ArgumentNullException.ThrowIfNull(onSuccess);
 
+        if (result is ApiResult apiResult)
+        {
+            return apiResult.ToActionResult(controller, onSuccess);
+        }
+
         var mapper = GetMapper(controller);
         return result.IsSuccess ? onSuccess() : mapper.Map(controller, result.Errors);
     }
@@ -26,6 +31,11 @@ public static class ResultActionResultExtensions
         ArgumentNullException.ThrowIfNull(result);
         ArgumentNullException.ThrowIfNull(controller);
         ArgumentNullException.ThrowIfNull(onSuccess);
+
+        if (result is ApiResult<T> apiResult)
+        {
+            return apiResult.ToActionResult(controller, onSuccess);
+        }
 
         var mapper = GetMapper(controller);
         return result.IsSuccess ? onSuccess(result.Value) : mapper.Map(controller, result.Errors);

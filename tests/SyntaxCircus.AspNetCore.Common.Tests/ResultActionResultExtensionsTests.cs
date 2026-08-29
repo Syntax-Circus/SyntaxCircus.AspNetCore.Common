@@ -167,6 +167,66 @@ public class ResultActionResultExtensionsTests
         exception.Message.ShouldContain(nameof(ResultProblemDetailsServiceCollectionExtensions.AddResultProblemDetails));
     }
 
+    [Fact]
+    public void ToActionResult_ResultTypedApiResultFailure_HonorsPassthroughStatus()
+    {
+        var controller = CreateController();
+        Result result = ApiResult.Failure(HttpStatusCode.BadGateway, "upstream-error", "The upstream service returned an error.");
+
+        var actionResult = result.ToActionResult(controller, () => controller.NoContent());
+
+        var objectResult = GetObjectResult(actionResult);
+        var problem = objectResult.Value.ShouldBeOfType<ProblemDetails>();
+        objectResult.StatusCode.ShouldBe(502);
+        problem.Status.ShouldBe(502);
+    }
+
+    [Fact]
+    public void ToActionResult_GenericResultTypedApiResultFailure_HonorsPassthroughStatus()
+    {
+        var controller = CreateController();
+        Result<string> result = ApiResult<string>.Failure(HttpStatusCode.ServiceUnavailable, "upstream-error", "The upstream service returned an error.");
+
+        var actionResult = result.ToActionResult(controller, value => controller.Ok(value));
+
+        var objectResult = GetObjectResult(actionResult);
+        objectResult.StatusCode.ShouldBe(503);
+    }
+
+    [Fact]
+    public void ToActionResult_ResultTypedApiResultSuccess_InvokesCallback()
+    {
+        var controller = CreateController();
+        Result result = ApiResult.Success();
+        var callbackInvoked = false;
+
+        var actionResult = result.ToActionResult(controller, () =>
+        {
+            callbackInvoked = true;
+            return controller.NoContent();
+        });
+
+        callbackInvoked.ShouldBeTrue();
+        actionResult.ShouldBeOfType<NoContentResult>();
+    }
+
+    [Fact]
+    public void ToActionResult_GenericResultTypedApiResultSuccess_InvokesCallbackWithValue()
+    {
+        var controller = CreateController();
+        Result<string> result = ApiResult<string>.Success("accepted");
+        string? callbackValue = null;
+
+        var actionResult = result.ToActionResult(controller, value =>
+        {
+            callbackValue = value;
+            return controller.Ok(value);
+        });
+
+        callbackValue.ShouldBe("accepted");
+        actionResult.ShouldBeOfType<OkObjectResult>();
+    }
+
     private static TestController CreateController(Action<ResultProblemDetailsOptions>? configure = null)
     {
         var services = new ServiceCollection();
