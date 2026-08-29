@@ -29,6 +29,7 @@ public sealed class ResultProblemDetailsOptions
         ResultErrorKind.NotFound => StatusCodes.Status404NotFound,
         ResultErrorKind.Conflict => StatusCodes.Status409Conflict,
         ResultErrorKind.Failure => StatusCodes.Status500InternalServerError,
+        ResultErrorKind.Passthrough => StatusCodes.Status500InternalServerError,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "The result error kind is not defined."),
     };
 }

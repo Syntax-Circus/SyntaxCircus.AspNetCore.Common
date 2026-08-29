@@ -28,6 +28,7 @@ public class ResultActionResultExtensionsTests
     [InlineData(ResultErrorKind.NotFound, 404)]
     [InlineData(ResultErrorKind.Conflict, 409)]
     [InlineData(ResultErrorKind.Failure, 500)]
+    [InlineData(ResultErrorKind.Passthrough, 500)]
     public void ToActionResult_Failure_UsesDefaultStatusMapping(ResultErrorKind kind, int expectedStatus)
     {
         var controller = CreateController();
