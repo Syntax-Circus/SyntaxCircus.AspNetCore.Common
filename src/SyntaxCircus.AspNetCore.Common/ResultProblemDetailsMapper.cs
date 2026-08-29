@@ -28,13 +28,17 @@ internal sealed class ResultProblemDetailsMapper(IOptions<ResultProblemDetailsOp
             : MapProblem(controller, errors[0], statusCode);
     }
 
-    private ObjectResult MapProblem(ControllerBase controller, ResultError error, int statusCode)
+    private ObjectResult MapProblem(ControllerBase controller, ResultError error, int statusCode) =>
+        MapWithStatus(controller, error, statusCode);
+
+    internal ObjectResult MapWithStatus(ControllerBase controller, ResultError error, int statusCode)
     {
+        var reasonPhrase = ReasonPhrases.GetReasonPhrase(statusCode);
         var problem = new ProblemDetails
         {
             Status = statusCode,
             Type = _options.BuildTypeUri(error.Code),
-            Title = ReasonPhrases.GetReasonPhrase(statusCode),
+            Title = string.IsNullOrEmpty(reasonPhrase) ? "Error" : reasonPhrase,
             Detail = error.Message,
             Instance = controller.HttpContext.Request.Path.Value,
         };
