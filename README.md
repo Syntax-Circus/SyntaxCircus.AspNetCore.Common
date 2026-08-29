@@ -286,7 +286,7 @@ For the rare case where a failure needs to carry an exact upstream status code (
 return apiResult.ToActionResult(this, widget => Ok(widget));
 ```
 
-**The `ApiResult`/`ApiResult<T>` overloads are resolved by the variable's compile-time type, not a runtime check.** A handler interface that declares `Task<Result<T>>` and returns an `ApiResult<T>` internally loses the passthrough silently — the caller's `result.ToActionResult(...)` binds to the `Result<T>` overload, and the status code is discarded in favor of the default kind-based mapping. Declare the interface as `Task<ApiResult<T>>` wherever passthrough is needed.
+The passthrough survives even when a handler interface declares `Task<Result<T>>` but returns an `ApiResult<T>` internally: the base `Result`/`Result<T>` overloads of `ToActionResult` also check the runtime type, so `result.ToActionResult(...)` still detects the `ApiResult<T>` instance and renders its exact status code, regardless of whether the compile-time type says `Result<T>` or `ApiResult<T>`.
 
 ## Trusted-proxy validation
 

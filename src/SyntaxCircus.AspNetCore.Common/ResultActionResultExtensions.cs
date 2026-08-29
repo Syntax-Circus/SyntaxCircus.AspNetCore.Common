@@ -46,11 +46,9 @@ public static class ResultActionResultExtensions
     /// at the result's exact <see cref="ApiResult.StatusCode"/> on failure.
     /// </summary>
     /// <remarks>
-    /// This overload is selected by <paramref name="result"/>'s compile-time type. A value produced as an
-    /// <see cref="ApiResult"/> but held in a <see cref="Result"/>-typed variable binds to the plain
-    /// <see cref="Result"/> overload instead, which silently discards the passthrough status code and falls
-    /// back to the default kind-based mapping. Declare the return type as <see cref="ApiResult"/> wherever the
-    /// passthrough status must survive.
+    /// The base <see cref="Result"/>/<see cref="Result{T}"/> overloads also detect an <see cref="ApiResult"/>
+    /// instance at runtime and delegate here, so a value declared as <see cref="Result"/> still renders its
+    /// exact passthrough status even when the compile-time type doesn't say <see cref="ApiResult"/>.
     /// </remarks>
     public static IActionResult ToActionResult(
         this ApiResult result,
@@ -70,11 +68,9 @@ public static class ResultActionResultExtensions
     /// at the result's exact <see cref="ApiResult{T}.StatusCode"/> on failure.
     /// </summary>
     /// <remarks>
-    /// This overload is selected by <paramref name="result"/>'s compile-time type. A value produced as an
-    /// <see cref="ApiResult{T}"/> but held in a <see cref="Result{T}"/>-typed variable binds to the plain
-    /// <see cref="Result{T}"/> overload instead, which silently discards the passthrough status code and falls
-    /// back to the default kind-based mapping. Declare the return type as <see cref="ApiResult{T}"/> wherever the
-    /// passthrough status must survive.
+    /// The base <see cref="Result"/>/<see cref="Result{T}"/> overloads also detect an <see cref="ApiResult{T}"/>
+    /// instance at runtime and delegate here, so a value declared as <see cref="Result{T}"/> still renders its
+    /// exact passthrough status even when the compile-time type doesn't say <see cref="ApiResult{T}"/>.
     /// </remarks>
     public static IActionResult ToActionResult<T>(
         this ApiResult<T> result,
