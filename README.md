@@ -453,6 +453,63 @@ This is a drop-in replacement for hand-rolling the equivalent with raw BCL types
 | `CreateTokenBucketTier(partitionKeySelector, tokenLimit, tokensPerPeriod, replenishmentPeriod, isExempt = null, configure = null)` | Builds one token-bucket `PartitionedRateLimiter<HttpContext>` tier for chaining. |
 | `UseChainedGlobalLimiter(params tiers)` | Sets `GlobalLimiter` to the chained combination of the given tiers. |
 
+## IP ban tracking
+
+Rate limiting rejects individual requests, but says nothing about a caller that keeps coming back — a
+vulnerability scanner probing hundreds of paths a minute will just keep tripping the limiter forever,
+one 429 at a time. `IpBanTracker`/`IpBanMiddleware` add the next step: once one IP racks up enough
+rejections in a short window, ban it outright so its requests stop reaching rate limiting, authentication,
+or any endpoint logic at all.
+
+```csharp
+builder.Services.AddIpBanTracking(builder.Configuration); // binds the "IpBan" section
+
+var app = builder.Build();
+app.UseForwardedHeaders(); // resolve the real client IP first
+app.UseIpBanTracking();    // then enforce bans, before rate limiting/auth
+app.UseRateLimiter();
+```
+
+`IpBanOptions` (section `"IpBan"`): `RejectionThreshold` (default 20), `WindowMinutes` (default 5),
+`BanDurationHours` (default 24).
+
+This package only tracks rejections and enforces bans — it has no opinion on *why* a request was rejected,
+or on persisting/alerting when a ban fires. Wire `IpBanTracker.RecordRejection`/`Ban` into your own
+`RateLimiterOptions.OnRejected` handler (alongside `UseProblemDetailsRejection`) and call whatever your
+app already uses for the "something's wrong, tell someone" step:
+
+```csharp
+builder.Services.AddRateLimiter(options =>
+{
+    options.UseProblemDetailsRejection();
+    var writeResponse = options.OnRejected!;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        var tracker = context.HttpContext.RequestServices.GetRequiredService<IpBanTracker>();
+        var ip = context.HttpContext.Connection.RemoteIpAddress;
+        var now = TimeProvider.System.GetUtcNow();
+        if (tracker.RecordRejection(ip, now, out var count))
+        {
+            tracker.Ban(ip!, now.AddHours(24));
+            // ...your own alerting/persistence here...
+        }
+        await writeResponse(context, cancellationToken);
+    };
+});
+```
+
+| Type / Method | Purpose |
+| --- | --- |
+| `IpBanTracker.IsBanned(ip, now)` | True if `ip` is currently banned as of `now`. |
+| `IpBanTracker.RecordRejection(ip, now, out countInWindow)` | Records one rejection; returns `true` exactly once, the moment `RejectionThreshold` is first crossed within `WindowMinutes`. |
+| `IpBanTracker.Ban(ip, until)` | Bans `ip` until `until`. |
+| `AddIpBanTracking(configuration)` | Binds `IpBanOptions` and registers `IpBanTracker` as a singleton (plus a default `TimeProvider` via `TryAddSingleton`, so it works standalone). |
+| `UseIpBanTracking()` | Adds `IpBanMiddleware`, which short-circuits banned IPs with a bare 403 — deliberately unlogged, so a ban actually goes quiet instead of producing the same log volume as before. |
+
+`IpBanTracker` holds state in memory (a `ConcurrentDictionary` per instance) and is registered as a
+singleton — safe for a single-instance host. Move to shared/distributed state (e.g. Redis) before scaling
+horizontally, or bans and rejection counts won't be consistent across instances.
+
 ## MassTransit correlation propagation
 
 Optional companion package — install `SyntaxCircus.AspNetCore.Common.MassTransit` separately:
