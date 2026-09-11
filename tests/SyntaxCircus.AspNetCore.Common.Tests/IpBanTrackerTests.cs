@@ -2,8 +2,10 @@ namespace SyntaxCircus.AspNetCore.Common.Tests;
 
 public sealed class IpBanTrackerTests
 {
-    private static IpBanTracker Tracker(int threshold = 3, int windowMinutes = 5) =>
-        new(Options.Create(new IpBanOptions { RejectionThreshold = threshold, WindowMinutes = windowMinutes }));
+    private static IpBanTracker Tracker(int threshold = 3, int windowMinutes = 5, IReadOnlyList<string>? exemptIps = null) =>
+        new(
+            Options.Create(new IpBanOptions { RejectionThreshold = threshold, WindowMinutes = windowMinutes }),
+            new IpAllowList(Options.Create(new IpAllowListOptions { Ips = exemptIps ?? [] })));
 
     [Fact]
     public void IsBanned_UnknownIp_ReturnsFalse() =>
@@ -43,5 +45,40 @@ public sealed class IpBanTrackerTests
     {
         Tracker(threshold: 1).RecordRejection(null, DateTimeOffset.UtcNow, out var count).ShouldBeFalse();
         count.ShouldBe(0);
+    }
+
+    [Fact]
+    public void RecordRejection_ExemptIp_NeverRecordedEvenPastThreshold()
+    {
+        var tracker = Tracker(threshold: 1, exemptIps: ["1.2.3.4"]);
+        var ip = IPAddress.Parse("1.2.3.4");
+        var now = DateTimeOffset.UtcNow;
+
+        tracker.RecordRejection(ip, now, out var count).ShouldBeFalse();
+        count.ShouldBe(0);
+    }
+
+    [Fact]
+    public void IsBanned_ExemptIp_AlwaysReturnsFalseEvenIfExplicitlyBanned()
+    {
+        var tracker = Tracker(exemptIps: ["1.2.3.4"]);
+        var ip = IPAddress.Parse("1.2.3.4");
+        var now = DateTimeOffset.UtcNow;
+
+        tracker.Ban(ip, now.AddHours(24));
+
+        tracker.IsBanned(ip, now).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void IsBanned_NonExemptIp_UnaffectedByAllowList()
+    {
+        var tracker = Tracker(exemptIps: ["1.2.3.4"]);
+        var ip = IPAddress.Parse("9.9.9.9");
+        var now = DateTimeOffset.UtcNow;
+
+        tracker.Ban(ip, now.AddHours(24));
+
+        tracker.IsBanned(ip, now).ShouldBeTrue();
     }
 }

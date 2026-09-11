@@ -51,6 +51,17 @@ public sealed class IpBanExtensionsTests
     }
 
     [Fact]
+    public void AddIpBanTracking_AlsoRegistersIpAllowList()
+    {
+        var services = new ServiceCollection();
+        services.AddIpBanTracking(new ConfigurationBuilder().Build());
+
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetRequiredService<IpAllowList>().ShouldNotBeNull();
+    }
+
+    [Fact]
     public void AddIpBanTracking_DoesNotOverrideAnAlreadyRegisteredTimeProvider()
     {
         var fakeClock = new FakeTimeProvider();
