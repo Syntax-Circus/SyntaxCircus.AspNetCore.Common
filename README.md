@@ -500,15 +500,55 @@ builder.Services.AddRateLimiter(options =>
 
 | Type / Method | Purpose |
 | --- | --- |
-| `IpBanTracker.IsBanned(ip, now)` | True if `ip` is currently banned as of `now`. |
-| `IpBanTracker.RecordRejection(ip, now, out countInWindow)` | Records one rejection; returns `true` exactly once, the moment `RejectionThreshold` is first crossed within `WindowMinutes`. |
-| `IpBanTracker.Ban(ip, until)` | Bans `ip` until `until`. |
-| `AddIpBanTracking(configuration)` | Binds `IpBanOptions` and registers `IpBanTracker` as a singleton (plus a default `TimeProvider` via `TryAddSingleton`, so it works standalone). |
+| `IpBanTracker.IsBanned(ip, now)` | True if `ip` is currently banned as of `now`. Always `false` for an allowlisted IP. |
+| `IpBanTracker.RecordRejection(ip, now, out countInWindow)` | Records one rejection; returns `true` exactly once, the moment `RejectionThreshold` is first crossed within `WindowMinutes`. A no-op (always returns `false`) for an allowlisted IP. |
+| `IpBanTracker.Ban(ip, until)` | Bans `ip` until `until`. A no-op for an allowlisted IP. |
+| `AddIpBanTracking(configuration)` | Binds `IpBanOptions` and registers `IpBanTracker` as a singleton (plus a default `TimeProvider` via `TryAddSingleton`, and `IpAllowList` via `AddIpAllowList`, so it works standalone). |
 | `UseIpBanTracking()` | Adds `IpBanMiddleware`, which short-circuits banned IPs with a bare 403 — deliberately unlogged, so a ban actually goes quiet instead of producing the same log volume as before. |
 
 `IpBanTracker` holds state in memory (a `ConcurrentDictionary` per instance) and is registered as a
 singleton — safe for a single-instance host. Move to shared/distributed state (e.g. Redis) before scaling
 horizontally, or bans and rejection counts won't be consistent across instances.
+
+### Exempting internal services
+
+Rate limiting rejects strangers; an internal service that legitimately calls at high volume shouldn't be
+mistaken for one. `IpAllowList` is a shared, config-driven exemption list — `IpBanTracker` consults it
+internally (an allowlisted IP is never recorded, never banned), and it's also just a regular singleton you
+can resolve to build your own rate-limiter `isExempt` predicate, so one config section exempts an internal
+IP from both concerns instead of listing it twice:
+
+```csharp
+builder.Services.AddIpBanTracking(builder.Configuration); // also registers IpAllowList
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.UseChainedGlobalLimiter(
+        RateLimiterOptionsExtensions.CreateFixedWindowTier(
+            context => context.Connection.RemoteIpAddress?.ToString(),
+            permitLimit: 60,
+            window: TimeSpan.FromMinutes(1),
+            isExempt: context => context.RequestServices.GetRequiredService<IpAllowList>()
+                .Contains(context.Connection.RemoteIpAddress)));
+    options.UseProblemDetailsRejection();
+});
+```
+
+`IpAllowListOptions` (section `"IpAllowList"`): `Ips` — exact-match addresses (e.g. `["10.0.0.5"]`);
+`Networks` — CIDR ranges (e.g. `["10.0.0.0/24"]`). A malformed entry in either list is ignored rather than
+throwing. Call `AddIpAllowList(configuration)` directly if you want the allowlist without IP ban tracking
+— it's safe to call alongside `AddIpBanTracking` too, registration is idempotent.
+
+Two things worth knowing before relying on this across container/network boundaries:
+
+- **Match on the real client IP, not a proxy's.** If the app sits behind a reverse proxy, `IpAllowList`
+  (like `IpBanMiddleware` and the rate limiter) only sees the IP `UseForwardedHeaders()` resolves from
+  `X-Forwarded-For` — which requires the proxy to already be trusted via `TrustedProxy` config. Never put
+  a shared ingress/reverse-proxy's own IP in `IpAllowList`: every request arrives from that IP, so doing so
+  would exempt all traffic through it, not just the one internal service.
+- **Prefer a CIDR range over a single IP for container platforms.** A container's IP on a Docker/Kubernetes
+  network usually isn't stable across restarts unless explicitly pinned — allowlisting the whole
+  known-internal subnet via `Networks` avoids bans/rate-limit friction reappearing after a redeploy.
 
 ## MassTransit correlation propagation
 

@@ -16,6 +16,7 @@ public static class IpBanExtensions
         ArgumentNullException.ThrowIfNull(configuration);
 
         services.Configure<IpBanOptions>(configuration.GetSection(IpBanOptions.SectionName));
+        services.AddIpAllowList(configuration);
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<IpBanTracker>();
 

@@ -11,9 +11,12 @@ section.
 
 ## Non-breaking guarantee for this revision
 
-The token-bucket rate-limiter helpers documented below (`AddPartitionedTokenBucket`,
-`CreateTokenBucketTier`) are new members only. No existing public signature or behavior changed.
-Safe to adopt without touching any existing call site.
+This revision adds `IpAllowList`/`IpAllowListOptions`/`AddIpAllowList` (new members) and wires them
+into `IpBanTracker`, whose constructor now takes a second required `IpAllowList` parameter. That is a
+breaking change **only** for a caller that constructs `IpBanTracker` directly; every documented usage
+(via `AddIpBanTracking` + DI) is unaffected — `AddIpBanTracking` now also calls `AddIpAllowList`
+internally, so `IpBanTracker` still resolves with no extra call needed. No other existing public
+signature or behavior changed.
 
 ## Correlation ID
 
@@ -323,6 +326,47 @@ options.UseChainedGlobalLimiter(
 This is a purely additive swap — no new composition mechanism, `UseChainedGlobalLimiter` and
 `CreateFixedWindowTier` already existed; `CreateTokenBucketTier` just fills the gap that made
 this one migration impossible before.
+
+## IP ban tracking
+
+```csharp
+builder.Services.AddIpBanTracking(builder.Configuration); // binds "IpBan", also registers IpAllowList
+
+var app = builder.Build();
+app.UseForwardedHeaders(); // resolve the real client IP first
+app.UseIpBanTracking();    // then enforce bans, before rate limiting/auth
+app.UseRateLimiter();
+```
+
+| Type / Member | Signature / purpose |
+| --- | --- |
+| `IpBanOptions` | Section `"IpBan"`: `RejectionThreshold` (int, default 20), `WindowMinutes` (int, default 5), `BanDurationHours` (int, default 24). |
+| `IpBanTracker(IOptions<IpBanOptions>, IpAllowList)` | `bool IsBanned(IPAddress? ip, DateTimeOffset now)`; `bool RecordRejection(IPAddress? ip, DateTimeOffset now, out int countInWindow)` — returns `true` exactly once, the tick `RejectionThreshold` is first crossed within `WindowMinutes`; `void Ban(IPAddress ip, DateTimeOffset until)`. All three are no-ops/false for an `IpAllowList`-matched IP. Registered singleton, in-memory (`ConcurrentDictionary`) — not distributed-safe. |
+| `IpBanMiddleware` | Added by `UseIpBanTracking()`. Short-circuits a banned IP with a bare, unlogged 403 before anything else runs. |
+| `AddIpBanTracking(IServiceCollection, IConfiguration)` | Binds `IpBanOptions`, calls `AddIpAllowList`, `TryAddSingleton(TimeProvider.System)`, `AddSingleton<IpBanTracker>()`. |
+| `UseIpBanTracking(IApplicationBuilder)` | Adds `IpBanMiddleware`. Place after `UseForwardedHeaders`, before rate limiting/auth. |
+
+The package has no opinion on *why* a request was rejected or on persisting/alerting a ban — wire
+`IpBanTracker.RecordRejection`/`Ban` into your own `RateLimiterOptions.OnRejected` (alongside
+`UseProblemDetailsRejection`); see README.md's "IP ban tracking" section for the exact pattern.
+
+### `IpAllowList` — shared exemption for both IP-ban and rate limiting
+
+| Type / Member | Signature / purpose |
+| --- | --- |
+| `IpAllowListOptions` | Section `"IpAllowList"`: `IReadOnlyList<string> Ips` (exact match), `IReadOnlyList<string> Networks` (CIDR). Malformed entries are ignored, not thrown. |
+| `IpAllowList(IOptions<IpAllowListOptions>)` | `bool Contains(IPAddress? ip)`. Registered singleton; lazily parses options once. |
+| `AddIpAllowList(IServiceCollection, IConfiguration)` | Binds `IpAllowListOptions`, `TryAddSingleton<IpAllowList>()`. Idempotent — safe to call directly and let `AddIpBanTracking` call it again. |
+
+`IpBanTracker` consults `IpAllowList` internally, so `AddIpBanTracking` alone is enough to exempt listed
+IPs from banning. To exempt the same IPs from rate limiting too, resolve `IpAllowList` from
+`context.RequestServices` inside your own `isExempt` delegate passed to `CreateFixedWindowTier`/
+`CreateTokenBucketTier`/`AddPerIpFixedWindow`/etc. — one config section, both concerns.
+
+Never put a reverse proxy's own IP in `IpAllowList`: `IpBanMiddleware`/the rate limiter see the IP
+`UseForwardedHeaders()` resolves from `X-Forwarded-For`, which requires the proxy to already be trusted
+via `TrustedProxy` config — allowlisting the proxy itself would exempt everything routed through it, not
+just one internal caller.
 
 ## MassTransit correlation propagation
 
