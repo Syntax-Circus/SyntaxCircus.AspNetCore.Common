@@ -67,6 +67,13 @@ Some routes need different values than the rest of the app — e.g. a public, un
 
 The first entry whose `PathPrefix` matches the request path (via `PathString.StartsWithSegments`) wins; everything else keeps the top-level defaults.
 
+`SecurityHeadersOptions` properties are settable, so values derived at startup (e.g. an environment-specific API origin for `img-src`) can be layered on after binding:
+
+```csharp
+builder.Services.PostConfigure<SecurityHeadersOptions>(options =>
+    options.ContentSecurityPolicy = AddImgSrc(options.ContentSecurityPolicy, apiOrigin));
+```
+
 ## Search indexing
 
 ```csharp
