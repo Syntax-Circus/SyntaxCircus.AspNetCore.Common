@@ -50,6 +50,36 @@ public class SecurityHeadersExtensionsTests
     }
 
     [Fact]
+    public async Task UseSecurityHeaders_PostConfigureCanAdjustBoundOptions()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["SecurityHeaders:ContentSecurityPolicy"] = "default-src 'self'; img-src 'self'",
+            })
+            .Build();
+
+        using var server = TestServerFactory.Create(
+            services =>
+            {
+                services.AddSecurityHeaders(configuration);
+                services.PostConfigure<SecurityHeadersOptions>(options =>
+                    options.ContentSecurityPolicy += " https://api.example.com");
+            },
+            app =>
+            {
+                app.UseSecurityHeaders();
+                app.MapGet("/", () => "ok");
+            });
+        using var client = server.CreateClient();
+
+        var response = await client.GetAsync(new Uri("/", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        response.Headers.GetValues("Content-Security-Policy")
+            .ShouldContain("default-src 'self'; img-src 'self' https://api.example.com");
+    }
+
+    [Fact]
     public async Task UseSecurityHeaders_PathOverrideMatches_UsesOverrideValues()
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>

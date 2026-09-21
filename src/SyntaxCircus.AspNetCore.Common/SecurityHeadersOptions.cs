@@ -1,27 +1,33 @@
 namespace SyntaxCircus.AspNetCore.Common;
 
+/// <summary>
+/// Header values written by <c>UseSecurityHeaders</c>. Properties use <c>set</c> (not <c>init</c>) so a
+/// consuming app can adjust them after configuration binding, e.g. from
+/// <c>services.PostConfigure&lt;SecurityHeadersOptions&gt;(...)</c> to append an environment-specific
+/// origin to <see cref="ContentSecurityPolicy"/>.
+/// </summary>
 public sealed class SecurityHeadersOptions
 {
     public const string SectionName = "SecurityHeaders";
 
-    public string ReferrerPolicy { get; init; } = "strict-origin-when-cross-origin";
+    public string ReferrerPolicy { get; set; } = "strict-origin-when-cross-origin";
 
-    public string FrameOptions { get; init; } = "DENY";
+    public string FrameOptions { get; set; } = "DENY";
 
-    public string ContentTypeOptions { get; init; } = "nosniff";
+    public string ContentTypeOptions { get; set; } = "nosniff";
 
-    public string PermissionsPolicy { get; init; } = "camera=(), geolocation=(), microphone=()";
+    public string PermissionsPolicy { get; set; } = "camera=(), geolocation=(), microphone=()";
 
-    public string ContentSecurityPolicy { get; init; } =
+    public string ContentSecurityPolicy { get; set; } =
         "base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests";
 
-    public string StrictTransportSecurity { get; init; } = "max-age=31536000; includeSubDomains";
+    public string StrictTransportSecurity { get; set; } = "max-age=31536000; includeSubDomains";
 
     /// <summary>
     /// Value for the <c>X-Robots-Tag</c> response header (e.g. <c>"noindex, nofollow"</c>). Null (the
     /// default) omits the header entirely — most routes don't want it set.
     /// </summary>
-    public string? RobotsTag { get; init; }
+    public string? RobotsTag { get; set; }
 
     /// <summary>
     /// Per-path overrides for <see cref="ReferrerPolicy"/> and <see cref="RobotsTag"/>, checked in order —
