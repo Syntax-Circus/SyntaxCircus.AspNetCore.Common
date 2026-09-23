@@ -4,7 +4,7 @@
 [![NuGet](https://img.shields.io/nuget/v/SyntaxCircus.AspNetCore.Common.svg)](https://www.nuget.org/packages/SyntaxCircus.AspNetCore.Common)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.txt)
 
-The small pieces of ASP.NET Core host boilerplate that show up in nearly every project, in one place: result-to-ProblemDetails mapping, correlation-ID middleware, security headers, search-indexing opt-out headers with robots.txt/sitemap.xml endpoint helpers, canonical-host redirects, a composable exception-handler/HSTS bootstrap, RFC 7807 ProblemDetails exception handling, trusted-proxy validation, standard health check endpoints, fixed-window/token-bucket rate-limiting policy helpers, and (via the optional `SyntaxCircus.AspNetCore.Common.MassTransit` package) correlation-ID propagation across a MassTransit bus.
+The small pieces of ASP.NET Core host boilerplate that show up in nearly every project, in one place: result-to-ProblemDetails mapping, correlation-ID middleware, security headers, search-indexing opt-out headers with robots.txt/sitemap.xml endpoint helpers, canonical-host redirects, a composable exception-handler/HSTS bootstrap, RFC 7807 ProblemDetails exception handling, trusted-proxy validation (plus its outbound counterpart, `ForwardedClientIpHandler`, for forwarding the visitor IP to your own downstream calls), standard health check endpoints, fixed-window/token-bucket rate-limiting policy helpers, and (via the optional `SyntaxCircus.AspNetCore.Common.MassTransit` package) correlation-ID propagation across a MassTransit bus.
 
 > **No support guaranteed.** Published as-is and maintained on a best-effort basis. Issues and PRs are welcome, but there's no SLA — fork it or vendor what you need if that's not enough.
 
@@ -311,6 +311,35 @@ If you want to trigger the same check outside the normal startup path (e.g. in a
 ```csharp
 builder.Environment.ValidateTrustedProxyConfiguration(trustedProxyOptions); // throws outside Development if misconfigured
 ```
+
+## Forwarding the visitor IP to downstream APIs
+
+The receiving half above is only one side of the picture. When a host makes its *own*
+server-to-server calls to a backend it trusts — e.g. a Blazor/web front end calling its own API over
+a private network — those calls arrive at the API carrying the calling host's own address as the
+connecting peer, not the original visitor's. That collapses per-IP rate limiting and auto-ban into a
+single shared bucket for all of the caller's traffic. `AddForwardedClientIp` fixes this on the
+*sending* side:
+
+```csharp
+builder.Services.AddHttpClient("Api", client => client.BaseAddress = new Uri(apiBaseUrl))
+    .AddForwardedClientIp();
+```
+
+Every request sent through that `HttpClient` gets `X-Forwarded-For` set (replacing any existing value)
+to the current visitor's IP, taken from `HttpContext.Connection.RemoteIpAddress`. Two things have to
+already be true for this to be safe and effective:
+
+- **The downstream API must trust the calling host as a proxy.** Configure the calling host's
+  address/network in the downstream API's `TrustedProxy` settings (see "Trusted-proxy validation"
+  above) — otherwise the header is ignored and the API falls back to its own connection IP.
+- **The calling host's own `RemoteIpAddress` must already be the real visitor IP**, which means the
+  calling host itself needs to be running `UseForwardedHeaders()` behind its own trusted reverse
+  proxy first. Otherwise this just forwards that proxy's IP instead of the visitor's.
+
+Only add this handler to clients that call your own trusted backends — it discloses the visitor's IP
+address to whatever the request's target is. It's a no-op (nothing is set or changed) when there's no
+current `HttpContext` (background work, some interactive-circuit calls) or no resolved remote IP.
 
 ## Health checks
 

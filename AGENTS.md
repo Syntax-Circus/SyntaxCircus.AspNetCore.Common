@@ -239,6 +239,29 @@ intent; use the options flag instead so the behavior stays centrally controlled.
 | `TrustedProxyOptions.TrustedNetworks` | `IReadOnlyList<string>` (default `[]`) | CIDR ranges, e.g. `"10.0.0.0/8"`. |
 | `TrustedProxyOptions.RequireTrustedProxiesInProduction` | `bool` (default `true`) | Set `false` to allow an empty trust list outside Development (rare — usually a config bug, not an intended state). |
 
+## Forwarded client IP (outbound)
+
+The sending-side counterpart to trusted-proxy validation above: stamps a host's own outbound
+server-to-server `HttpClient` calls (e.g. Web calling its own API over a private network) with the
+current visitor's IP, so the downstream side's rate limiting/auto-ban/`IpAllowList` see the real
+visitor instead of the calling host's own address.
+
+| Member | Signature | Behavior |
+| --- | --- | --- |
+| `AddForwardedClientIp` | `IHttpClientBuilder AddForwardedClientIp(this IHttpClientBuilder builder)` | Calls `AddHttpContextAccessor()`, registers `ForwardedClientIpHandler` (`TryAddTransient`), and adds it via `AddHttpMessageHandler<ForwardedClientIpHandler>()`. Idempotent — safe to call once per named/typed client. |
+| `ForwardedClientIpHandler` | `sealed class ForwardedClientIpHandler(IHttpContextAccessor httpContextAccessor) : DelegatingHandler` | On `SendAsync`, reads `httpContextAccessor.HttpContext?.Connection.RemoteIpAddress`; if non-null, removes any existing `X-Forwarded-For` on the outbound request and sets it to that address (IPv4-mapped IPv6 normalized to plain IPv4 via `MapToIPv4()`). No-op — existing header, if any, left untouched — when there's no current `HttpContext` or no resolved remote IP. |
+
+Requires the *downstream* API to already trust the calling host as a proxy (its own
+`TrustedProxy`/`TrustedProxyOptions` config) and the *calling* host's own `RemoteIpAddress` to already
+be the real visitor IP (i.e. this host itself runs `UseForwardedHeaders()` behind its own trusted
+reverse proxy). Only wire this into clients that call your own trusted backends — it discloses the
+visitor's IP to the request's target.
+
+```csharp
+builder.Services.AddHttpClient("Api", client => client.BaseAddress = new Uri(apiBaseUrl))
+    .AddForwardedClientIp();
+```
+
 ## Blazor Web App static assets
 
 | Member | Signature | Behavior |
