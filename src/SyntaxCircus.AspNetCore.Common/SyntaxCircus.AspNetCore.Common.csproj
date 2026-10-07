@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <PackageId>SyntaxCircus.AspNetCore.Common</PackageId>
     <Title>SyntaxCircus ASP.NET Core Common</Title>
-    <Description>Small, near-universal ASP.NET Core host boilerplate: result-to-ProblemDetails mapping, correlation-ID middleware, security headers, and exception handling, and a current-user service.</Description>
+    <Description>Small, near-universal ASP.NET Core host boilerplate: result-to-ProblemDetails mapping, correlation-ID middleware, security headers, exception handling, and a current-user service.</Description>
     <Authors>Syntax Circus LLC</Authors>
     <Company>Syntax Circus LLC</Company>
     <Copyright>Copyright © Syntax Circus LLC</Copyright>

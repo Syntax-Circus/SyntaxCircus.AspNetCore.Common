@@ -364,6 +364,7 @@ public sealed class MyService(ICurrentUserService currentUser)
 
 A thin scoped wrapper over `IHttpContextAccessor` exposing `IsAuthenticated`, `UserId`, `Email`, `DisplayName`, and
 the raw `Principal`, built on `ClaimsPrincipalExtensions`.
+
 ## Health checks
 
 ```csharp
