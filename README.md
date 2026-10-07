@@ -341,6 +341,30 @@ Only add this handler to clients that call your own trusted backends — it disc
 address to whatever the request's target is. It's a no-op (nothing is set or changed) when there's no
 current `HttpContext` (background work, some interactive-circuit calls) or no resolved remote IP.
 
+## ICurrentUserService
+
+Moved here from `SyntaxCircus.Common` in 0.2.0 (the `SyntaxCircus.Common` package no longer references
+ASP.NET Core). The namespace is now `SyntaxCircus.AspNetCore.Common`; `ClaimsPrincipalExtensions` stays
+in `SyntaxCircus.Common`.
+
+```csharp
+builder.Services.AddCurrentUserService();
+```
+
+```csharp
+public sealed class MyService(ICurrentUserService currentUser)
+{
+    public void DoSomething()
+    {
+        if (!currentUser.IsAuthenticated) return;
+        var userId = currentUser.UserId;
+    }
+}
+```
+
+A thin scoped wrapper over `IHttpContextAccessor` exposing `IsAuthenticated`, `UserId`, `Email`, `DisplayName`, and
+the raw `Principal`, built on `ClaimsPrincipalExtensions`.
+
 ## Health checks
 
 ```csharp
