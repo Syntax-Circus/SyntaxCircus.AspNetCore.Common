@@ -155,6 +155,15 @@ mapped `.AllowAnonymous()` so a global auth policy elsewhere in the app doesn't 
 Routes default to `/robots.txt`/`/sitemap.xml` but take an optional second parameter to use
 something else.
 
+To attach endpoint conventions (for example exempting crawlers from a global rate limiter), use the
+overloads that take a `configureEndpoint` callback right after the factory; `AllowAnonymous` stays
+applied:
+
+```csharp
+app.MapRobotsTxt(_ => "User-agent: *\nAllow: /", e => e.DisableRateLimiting());
+app.MapSitemap(_ => [new SitemapEntry("https://example.com/")], e => e.DisableRateLimiting(), cacheDuration: TimeSpan.FromHours(1));
+```
+
 Both also accept an async factory — useful when the content comes from a database (e.g. a sitemap
 built from published blog posts):
 
