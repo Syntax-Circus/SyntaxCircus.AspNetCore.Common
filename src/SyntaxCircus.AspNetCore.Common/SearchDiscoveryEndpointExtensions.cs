@@ -13,7 +13,7 @@ public static class SearchDiscoveryEndpointExtensions
     {
         ArgumentNullException.ThrowIfNull(contentFactory);
 
-        return endpoints.MapRobotsTxt(context => Task.FromResult(contentFactory(context)), route, cacheDuration);
+        return MapRobotsTxtCore(endpoints, context => Task.FromResult(contentFactory(context)), null, route, cacheDuration);
     }
 
     public static IEndpointRouteBuilder MapRobotsTxt(
@@ -21,11 +21,97 @@ public static class SearchDiscoveryEndpointExtensions
         Func<HttpContext, Task<string>> contentFactory,
         string route = "/robots.txt",
         TimeSpan? cacheDuration = null)
+        => MapRobotsTxtCore(endpoints, contentFactory, null, route, cacheDuration);
+
+    /// <summary>
+    /// Maps <c>/robots.txt</c> and lets the caller add endpoint conventions (for example
+    /// <c>DisableRateLimiting()</c>) to the mapped endpoint. <c>AllowAnonymous</c> stays applied.
+    /// </summary>
+    public static IEndpointRouteBuilder MapRobotsTxt(
+        this IEndpointRouteBuilder endpoints,
+        Func<HttpContext, string> contentFactory,
+        Action<IEndpointConventionBuilder> configureEndpoint,
+        string route = "/robots.txt",
+        TimeSpan? cacheDuration = null)
+    {
+        ArgumentNullException.ThrowIfNull(contentFactory);
+        ArgumentNullException.ThrowIfNull(configureEndpoint);
+
+        return MapRobotsTxtCore(endpoints, context => Task.FromResult(contentFactory(context)), configureEndpoint, route, cacheDuration);
+    }
+
+    /// <summary>Async variant of the <c>configureEndpoint</c> overload of <c>MapRobotsTxt</c>.</summary>
+    public static IEndpointRouteBuilder MapRobotsTxt(
+        this IEndpointRouteBuilder endpoints,
+        Func<HttpContext, Task<string>> contentFactory,
+        Action<IEndpointConventionBuilder> configureEndpoint,
+        string route = "/robots.txt",
+        TimeSpan? cacheDuration = null)
+    {
+        ArgumentNullException.ThrowIfNull(configureEndpoint);
+
+        return MapRobotsTxtCore(endpoints, contentFactory, configureEndpoint, route, cacheDuration);
+    }
+
+    public static IEndpointRouteBuilder MapSitemap(
+        this IEndpointRouteBuilder endpoints,
+        Func<HttpContext, IReadOnlyList<SitemapEntry>> entriesFactory,
+        string route = "/sitemap.xml",
+        TimeSpan? cacheDuration = null)
+    {
+        ArgumentNullException.ThrowIfNull(entriesFactory);
+
+        return MapSitemapCore(endpoints, context => Task.FromResult(entriesFactory(context)), null, route, cacheDuration);
+    }
+
+    public static IEndpointRouteBuilder MapSitemap(
+        this IEndpointRouteBuilder endpoints,
+        Func<HttpContext, Task<IReadOnlyList<SitemapEntry>>> entriesFactory,
+        string route = "/sitemap.xml",
+        TimeSpan? cacheDuration = null)
+        => MapSitemapCore(endpoints, entriesFactory, null, route, cacheDuration);
+
+    /// <summary>
+    /// Maps <c>/sitemap.xml</c> and lets the caller add endpoint conventions (for example
+    /// <c>DisableRateLimiting()</c>) to the mapped endpoint. <c>AllowAnonymous</c> stays applied.
+    /// </summary>
+    public static IEndpointRouteBuilder MapSitemap(
+        this IEndpointRouteBuilder endpoints,
+        Func<HttpContext, IReadOnlyList<SitemapEntry>> entriesFactory,
+        Action<IEndpointConventionBuilder> configureEndpoint,
+        string route = "/sitemap.xml",
+        TimeSpan? cacheDuration = null)
+    {
+        ArgumentNullException.ThrowIfNull(entriesFactory);
+        ArgumentNullException.ThrowIfNull(configureEndpoint);
+
+        return MapSitemapCore(endpoints, context => Task.FromResult(entriesFactory(context)), configureEndpoint, route, cacheDuration);
+    }
+
+    /// <summary>Async variant of the <c>configureEndpoint</c> overload of <c>MapSitemap</c>.</summary>
+    public static IEndpointRouteBuilder MapSitemap(
+        this IEndpointRouteBuilder endpoints,
+        Func<HttpContext, Task<IReadOnlyList<SitemapEntry>>> entriesFactory,
+        Action<IEndpointConventionBuilder> configureEndpoint,
+        string route = "/sitemap.xml",
+        TimeSpan? cacheDuration = null)
+    {
+        ArgumentNullException.ThrowIfNull(configureEndpoint);
+
+        return MapSitemapCore(endpoints, entriesFactory, configureEndpoint, route, cacheDuration);
+    }
+
+    private static IEndpointRouteBuilder MapRobotsTxtCore(
+        IEndpointRouteBuilder endpoints,
+        Func<HttpContext, Task<string>> contentFactory,
+        Action<IEndpointConventionBuilder>? configureEndpoint,
+        string route,
+        TimeSpan? cacheDuration)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentNullException.ThrowIfNull(contentFactory);
 
-        endpoints.MapGet(route, async (HttpContext context, IOptions<SearchIndexingOptions> options) =>
+        var builder = endpoints.MapGet(route, async (HttpContext context, IOptions<SearchIndexingOptions> options) =>
                 {
                     ApplyCacheControl(context, cacheDuration);
 
@@ -37,30 +123,22 @@ public static class SearchDiscoveryEndpointExtensions
                 })
             .AllowAnonymous();
 
+        configureEndpoint?.Invoke(builder);
+
         return endpoints;
     }
 
-    public static IEndpointRouteBuilder MapSitemap(
-        this IEndpointRouteBuilder endpoints,
-        Func<HttpContext, IReadOnlyList<SitemapEntry>> entriesFactory,
-        string route = "/sitemap.xml",
-        TimeSpan? cacheDuration = null)
-    {
-        ArgumentNullException.ThrowIfNull(entriesFactory);
-
-        return endpoints.MapSitemap(context => Task.FromResult(entriesFactory(context)), route, cacheDuration);
-    }
-
-    public static IEndpointRouteBuilder MapSitemap(
-        this IEndpointRouteBuilder endpoints,
+    private static IEndpointRouteBuilder MapSitemapCore(
+        IEndpointRouteBuilder endpoints,
         Func<HttpContext, Task<IReadOnlyList<SitemapEntry>>> entriesFactory,
-        string route = "/sitemap.xml",
-        TimeSpan? cacheDuration = null)
+        Action<IEndpointConventionBuilder>? configureEndpoint,
+        string route,
+        TimeSpan? cacheDuration)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
         ArgumentNullException.ThrowIfNull(entriesFactory);
 
-        endpoints.MapGet(route, async (HttpContext context, IOptions<SearchIndexingOptions> options) =>
+        var builder = endpoints.MapGet(route, async (HttpContext context, IOptions<SearchIndexingOptions> options) =>
                 {
                     if (options.Value.BlockRobotsAndSitemap)
                     {
@@ -73,6 +151,8 @@ public static class SearchDiscoveryEndpointExtensions
                     return Results.Content(BuildSitemapXml(entries), "application/xml");
                 })
             .AllowAnonymous();
+
+        configureEndpoint?.Invoke(builder);
 
         return endpoints;
     }
