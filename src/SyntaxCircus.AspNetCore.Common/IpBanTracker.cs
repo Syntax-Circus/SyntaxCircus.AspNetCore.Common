@@ -50,4 +50,23 @@ public sealed class IpBanTracker(IOptions<IpBanOptions> options, IpAllowList all
         if (allowList.Contains(ip)) return;
         _bans[ip.ToString()] = until;
     }
+
+    /// <summary>Bans still in force as of <paramref name="now"/>, soonest expiry first. For operator tooling.</summary>
+    public IReadOnlyList<ActiveIpBan> GetActiveBans(DateTimeOffset now) =>
+        [.. _bans.Where(ban => ban.Value > now)
+            .Select(ban => new ActiveIpBan(ban.Key, ban.Value))
+            .OrderBy(ban => ban.BannedUntil)];
+
+    /// <summary>
+    /// Lifts a ban on <paramref name="ip"/> and forgets its rejection count, so a repeat offender has to
+    /// cross the threshold again rather than staying past it (which would never re-trigger).
+    /// Returns true if a ban was in force as of <paramref name="now"/>.
+    /// </summary>
+    public bool Unban(IPAddress ip, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(ip);
+        var key = ip.ToString();
+        _rejections.TryRemove(key, out _);
+        return _bans.TryRemove(key, out var until) && until > now;
+    }
 }

@@ -572,6 +572,8 @@ builder.Services.AddRateLimiter(options =>
 | `IpBanTracker.IsBanned(ip, now)` | True if `ip` is currently banned as of `now`. Always `false` for an allowlisted IP. |
 | `IpBanTracker.RecordRejection(ip, now, out countInWindow)` | Records one rejection; returns `true` exactly once, the moment `RejectionThreshold` is first crossed within `WindowMinutes`. A no-op (always returns `false`) for an allowlisted IP. |
 | `IpBanTracker.Ban(ip, until)` | Bans `ip` until `until`. A no-op for an allowlisted IP. |
+| `IpBanTracker.GetActiveBans(now)` | The bans still in force as of `now` (`ActiveIpBan(IpAddress, BannedUntil)`), soonest expiry first. For an operator "who is banned?" view. |
+| `IpBanTracker.Unban(ip, now)` | Lifts a ban and clears that IP's rejection count, so the threshold can trigger again. Returns `true` if a ban was in force. This package exposes no endpoint for it; put your own authorization in front. |
 | `AddIpBanTracking(configuration)` | Binds `IpBanOptions` and registers `IpBanTracker` as a singleton (plus a default `TimeProvider` via `TryAddSingleton`, and `IpAllowList` via `AddIpAllowList`, so it works standalone). |
 | `UseIpBanTracking()` | Adds `IpBanMiddleware`, which short-circuits banned IPs with a bare 403 — deliberately unlogged, so a ban actually goes quiet instead of producing the same log volume as before. |
 
